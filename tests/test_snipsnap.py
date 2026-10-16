@@ -76,6 +76,7 @@ def test_dead_code(project):
     assert dead_names(project) == {
         ("function", "dead_func"),
         ("class", "DeadClass"),
+        ("class", "Base"),  # only referenced by the dead Child
         ("class", "Child"),
         ("method", "method"),
         ("method", "hook"),
@@ -326,3 +327,68 @@ def test_cli_reports_test_only_section(tested_project, capsys):
     text = capsys.readouterr().out
     assert "Only used by tests (4)" in text and "tested by: tests/test_lib.py" in text
     assert "Dead code" not in text
+
+
+def test_recursive_dead_code(tmp_path):
+    write(
+        tmp_path,
+        "lib.py",
+        """
+        def used(n):
+            return 1 if n == 0 else n * used(n - 1)
+
+        def dead_self(n):
+            return 0 if n == 0 else dead_self(n - 1)
+
+        def ping(n):
+            return pong(n - 1) if n else 0
+
+        def pong(n):
+            return ping(n - 1) if n else 0
+
+        def dead_caller():
+            return helper()
+
+        def helper():
+            return 1
+
+        def main():
+            return used(3)
+    """,
+    )
+    modules = load_modules([tmp_path], [])
+    dead = {i.name for i in find_dead_code(modules, set())}
+    assert dead == {"dead_self", "ping", "pong", "dead_caller", "helper"}
+
+
+def test_mutually_recursive_test_only(tmp_path):
+    from snipsnap.testonly import find_only_tested
+
+    write(
+        tmp_path,
+        "lib.py",
+        """
+        def ping(n):
+            return pong(n - 1) if n else 0
+
+        def pong(n):
+            return ping(n - 1) if n else 0
+
+        def main():
+            return 1
+    """,
+    )
+    write(tmp_path, "tests/test_lib.py", "from lib import ping\n\ndef test_x():\n    ping(2)\n")
+    modules = load_modules([tmp_path], [])
+    dead = find_dead_code(modules, set())
+    assert [i.name for i in dead if i.kind != "import"] == []
+    items = find_only_tested(modules, set(), dead)
+    assert {i.name for i in items} == {"ping", "pong"}
+
+
+def test_unparseable_deep_nesting_is_skipped(tmp_path, capsys):
+    write(tmp_path, "ok.py", "def f():\n    return 1\n")
+    (tmp_path / "deep.py").write_text("x = " + "[" * 100000 + "]" * 100000 + "\n")
+    modules = load_modules([tmp_path], [])
+    assert [m.path.name for m in modules] == ["ok.py"]
+    assert "skipping" in capsys.readouterr().err

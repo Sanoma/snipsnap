@@ -79,7 +79,7 @@ def load_modules(paths: list[Path], excludes: list[str], root: Path | None = Non
         for file in _iter_files(scan, excludes, base):
             try:
                 tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
-            except (SyntaxError, UnicodeDecodeError, ValueError) as exc:
+            except (SyntaxError, UnicodeDecodeError, ValueError, RecursionError) as exc:
                 print(f"snipsnap: skipping {file}: {exc}", file=sys.stderr)
                 continue
             modules.append(Module(path=file.resolve().relative_to(base), tree=tree))

@@ -1,15 +1,19 @@
 """Name-based dead code detection (unused functions, methods, classes, imports).
 
-A definition is reported when its name is never referenced anywhere in the
-scanned code. This is deliberately conservative: two unrelated things sharing a
-name hide each other, but there are few false alarms. Dynamic usage
-(getattr, plugins, framework hooks) cannot be seen; decorated definitions,
-dunder methods, entry points and short string constants are treated as used.
+A definition is reported when its name is not reachable from live code: code
+outside any tracked definition (module level, decorated functions, dunder
+methods, ...) is live, and a definition's body only counts once its own name is
+live. So recursive functions, and groups of functions that only call each other,
+are reported when nothing else uses them. This is deliberately conservative: two
+unrelated things sharing a name hide each other, but there are few false alarms.
+Dynamic usage (getattr, plugins, framework hooks) cannot be seen; decorated
+definitions, dunder methods, entry points and short string constants are treated
+as used.
 """
 
 import ast
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterator
 from collections.abc import Set as AbstractSet
 
@@ -38,14 +42,18 @@ def _walk_pruned(root: ast.AST, skip: AbstractSet[int]) -> Iterator[ast.AST]:
     stack = [root]
     while stack:
         node = stack.pop()
-        if id(node) in skip:
+        if node is not root and id(node) in skip:
             continue
         yield node
         stack.extend(ast.iter_child_nodes(node))
 
 
 def collect_references(root: ast.AST, skip: AbstractSet[int] = frozenset()) -> Counter[str]:
-    """Count name references under ``root``, ignoring the subtrees whose node id is in ``skip``."""
+    """Count name references under ``root``, ignoring the subtrees whose node id is in ``skip``.
+
+    ``root`` itself is never skipped, so a definition's own references can be counted
+    while the definitions nested inside it are left out.
+    """
     refs: Counter[str] = Counter()
     docstrings = {
         id(d)
@@ -177,19 +185,47 @@ def _collect_names_used_in_file(module: Module) -> set[str]:
     return used
 
 
+def live_names(
+    modules: list[Module],
+    defs: list[tuple[DeadItem, ast.AST]],
+    seeds: AbstractSet[str],
+) -> set[str]:
+    """Names reachable from the code of ``modules`` that lies outside ``defs``.
+
+    A definition contributes the names it references only once its own name is live.
+    """
+    skip = {id(node) for _, node in defs}
+    live: set[str] = set(seeds)
+    for module in modules:
+        live |= collect_references(module.tree, skip).keys()
+
+    by_name: defaultdict[str, list[ast.AST]] = defaultdict(list)
+    for item, node in defs:
+        by_name[item.name].append(node)
+
+    expanded: set[int] = set()
+    pending = list(live)
+    while pending:
+        for node in by_name.get(pending.pop(), ()):
+            if id(node) in expanded:
+                continue
+            expanded.add(id(node))
+            for name in collect_references(node, skip):
+                if name not in live:
+                    live.add(name)
+                    pending.append(name)
+    return live
+
+
 def find_dead_code(
     modules: list[Module],
     entry_points: set[str],
     include_overrides: bool = False,
 ) -> list[DeadItem]:
-    referenced: set[str] = {"main"} | entry_points
-    for module in modules:
-        referenced |= collect_references(module.tree).keys()
+    defs = [pair for module in modules for pair in definitions(module, include_overrides)]
+    live = live_names(modules, defs, {"main"} | entry_points)
 
-    items: list[DeadItem] = []
+    items = [item for item, _ in defs if item.name not in live]
     for module in modules:
-        items.extend(
-            i for i, _ in definitions(module, include_overrides) if i.name not in referenced
-        )
         items.extend(_unused_imports(module))
     return sorted(items, key=lambda i: (i.path, i.line, i.name))

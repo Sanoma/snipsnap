@@ -1,13 +1,13 @@
 """Definitions in production code that only tests (or other test-only code) use.
 
-A definition is test-only when every reference to its name outside its own body
-comes from test modules. References from code that is itself test-only do not
-count, so helpers that only a test-only function calls are reported as well.
+A definition is test-only when it is live (not dead) but unreachable from
+production code: starting from production code outside any tracked definition,
+a definition's body only counts once its own name is live. Helpers that only a
+test-only function calls are therefore reported as well, including recursive
+functions and groups of functions that only call each other.
 """
 
-from collections import Counter
-
-from .deadcode import collect_references, definitions
+from .deadcode import collect_references, definitions, live_names
 from .models import DeadItem, OnlyTestedItem
 from .project import Module
 
@@ -23,36 +23,14 @@ def find_only_tested(
     if not prod or not tests:
         return []
 
-    exempt = {"main"} | entry_points
+    defs = [pair for module in prod for pair in definitions(module, include_overrides)]
+    live = live_names(prod, defs, {"main"} | entry_points)
     dead_keys = {(d.path, d.line) for d in dead}
-    candidates = [
-        (item, node)
-        for module in prod
-        for item, node in definitions(module, include_overrides)
-        if (item.path, item.line) not in dead_keys and item.name not in exempt
+    flagged = [
+        item
+        for item, _ in defs
+        if item.name not in live and (item.path, item.line) not in dead_keys
     ]
-    own = {id(node): collect_references(node) for _, node in candidates}
-    everywhere: Counter[str] = Counter()
-    for module in modules:
-        everywhere.update(collect_references(module.tree))
-
-    removed: set[int] = set()
-    flagged: list[DeadItem] = []
-    while True:
-        live: Counter[str] = Counter()
-        for module in prod:
-            live.update(collect_references(module.tree, removed))
-        found = [
-            (item, node)
-            for item, node in candidates
-            if id(node) not in removed
-            and live[item.name] - own[id(node)][item.name] <= 0
-            and everywhere[item.name] - own[id(node)][item.name] > 0
-        ]
-        if not found:
-            break
-        removed.update(id(node) for _, node in found)
-        flagged.extend(item for item, _ in found)
 
     outermost = [
         item
