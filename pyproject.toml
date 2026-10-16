@@ -1,0 +1,37 @@
+[project]
+name = "snipsnap"
+version = "0.1.0"
+description = "Find dead code and duplicate functions in Python projects"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = ["pydantic>=2.12"]
+
+[project.scripts]
+snipsnap = "snipsnap.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.17.1",
+    "ty>=0.0.89",
+]
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.src]
+include = ["src", "tests"]
