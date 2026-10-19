@@ -1,0 +1,80 @@
+---
+name: fix-snipsnap-report
+description: "Apply the findings of a snipsnap JSON report (dead code, test-only code, duplicate functions) to a Python codebase: verify each finding, delete or merge the code, clean up imports, and confirm with tests, linters and a re-scan. Use when the user provides a snipsnap report.json, says 'fix the snipsnap report', 'remove the dead code snipsnap found', 'clean up snipsnap findings', or asks to run snipsnap and fix what it finds."
+---
+
+# Fixing a snipsnap report
+
+snipsnap finds dead code, code only used by tests, and duplicate functions. This skill turns its `report.json` into code changes. The report is **name-based and static**, so every finding is a *candidate*: verify before you delete.
+
+## 1. Get and check the report
+
+- If the user gave a report path, use it. Otherwise produce one (`--with-source` makes stale-report checks easy):
+  - `snipsnap scan --with-source -o report.json <dirs>`
+  - If `snipsnap` is not on PATH, this file lives in the snipsnap checkout: resolve its real path (it is usually symlinked into `~/.claude/skills`), and run `uv run --project <checkout> snipsnap scan ...` or install it with `uv tool install --editable <checkout>`.
+  - Pass **every** Python directory including tests, or the test-only analysis is empty.
+- Require `version == 1`; stop and tell the user otherwise.
+- All finding `path`s are relative to the report's `root`, not the cwd. Resolve them against `root`, and refuse to touch files outside it.
+- If the report is older than the files it points at, or a finding's `source` no longer matches the file at `path:line-end_line`, the line numbers are stale. Re-scan instead of guessing.
+
+List findings per file, **highest line first** (deleting bottom-up keeps earlier line numbers valid):
+
+```sh
+jq -r '[.dead_code[]|{id,kind,path,line,end_line,qualname}] | group_by(.path)[]
+       | sort_by(-.line)[] | "\(.path):\(.line)-\(.end_line) \(.kind) \(.qualname) \(.id)"' report.json
+```
+
+## 2. Prepare
+
+- Run `git status`. If the tree has unrelated uncommitted changes, tell the user and work only on the files in the report. Never commit unless asked.
+- Establish a baseline: run the project's tests, linter and type checker (look in `pyproject.toml` / README for pytest, ruff, ty, mypy). Record what already fails so you don't blame yourself for it.
+
+## 3. Dead code (`dead_code`)
+
+Apply automatically once each finding passes verification. For every finding:
+
+1. **Verify it is really unused.** Grep the whole repo (not just `.py`) for the bare `name`: configs, YAML/TOML, templates, docs, CLI entry points, `getattr`/string lookups, plugin registries, serialization (pydantic/ORM field and hook names), framework conventions (Django, pytest fixtures, Click commands, Lambda handlers, `__all__`). Same-name definitions elsewhere hide each other in snipsnap, so a hit on an unrelated same-named thing does not make it used, but a dynamic reference does.
+2. **Library or public API?** If the project is a published package and the item is exported (in `__init__.py`, `__all__`, or documented), skip it and report it instead.
+3. **Delete it** with Edit, not sed:
+   - function/method/class: remove lines `line`..`end_line`, plus a directly preceding comment that belongs to it, and collapse the extra blank lines so spacing stays PEP 8.
+   - if removing leaves an empty body (a class with only that method, an `if`/`else` branch), put `pass` or `...` there rather than leaving invalid code.
+   - `import`: remove only the unused *name*. For `import a, b` or `from x import a, b` keep the others; drop the whole statement only if nothing remains. Skip imports with `# noqa`, imports inside `try/except ImportError`, and imports that exist for side effects.
+4. **Clean up the fallout.** Deleting code can orphan imports. Run the linter's unused-import fix (`ruff check --select F401 --fix <files>`) or remove them by hand.
+
+Deleting code can make *more* code dead (callees of the removed code). That is expected: after finishing the pass, re-scan and repeat until no new dead-code findings appear (cap at 5 rounds, and say so if you hit it).
+
+## 4. Test-only code (`test_only`)
+
+These have no production callers, only tests. Removing them means **deleting tests too**, so do not do this silently.
+
+- Show the user the list (`qualname`, `tested_by`) and ask which to remove, unless they already said to remove all.
+- For each approved item: delete the definition, then delete only the test functions/fixtures/imports that exist to exercise it. Remove a whole test file only if nothing else is left in it. A test that also covers other code stays; just drop the part that used the removed item.
+- Skip anything that looks like intentional public API and list it for the user.
+
+## 5. Duplicates (`duplicates`)
+
+Merge only after showing the user the plan, unless they said to merge everything.
+
+- **`similar` groups are not equivalent.** Never auto-merge them. Show the differences and let the user decide.
+- **`exact` groups** are equal after ignoring function names, docstrings, annotations, decorators and parameter/local names. Before merging check what that normalization hides:
+  - callers passing **keyword arguments** that use a different parameter name;
+  - **decorators** that differ (`@staticmethod`, `@lru_cache`, `@property`, framework decorators);
+  - methods in different classes: they depend on `self`/`cls` state, so do not hoist them blindly. Report these for manual refactoring unless the merge is trivial.
+- Pick one canonical copy: prefer the one with the best name, docstring and annotations, living in the module the others can import without creating an import cycle. Delete the others, update their callers and imports to use the canonical one, and keep the canonical copy's docstring and types.
+- If the callers are in many files, do it one duplicate at a time and run the tests between merges.
+
+## 6. Verify
+
+1. Run the same tests, linter and type checker as the baseline. Any new failure is yours: fix it or revert that edit.
+2. Re-run snipsnap with the same arguments. Findings you fixed must be gone, and nothing should be newly reported except legitimate cascades.
+3. `git diff --stat` to confirm only intended files changed.
+
+## 7. Report back
+
+Short summary: counts removed per category, anything **skipped with the reason** (public API, dynamic use found, stale line numbers, `similar` duplicates, needs user decision), baseline vs. final test status. Do not commit or push unless asked.
+
+## Rules of thumb
+
+- When unsure whether something is used, leave it and list it. A false deletion costs more than a missed one.
+- Edit files with the Edit tool, bottom-up per file; never regenerate whole files.
+- Don't "improve" surrounding code. Only change what the report calls for plus the direct cleanup it causes.

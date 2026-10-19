@@ -1,4 +1,5 @@
 import json
+import re
 import textwrap
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 from snipsnap.cli import main
 from snipsnap.deadcode import find_dead_code
 from snipsnap.duplicates import find_duplicates
+from snipsnap.models import DeadCodeFinding, Report
 from snipsnap.project import entry_point_names, load_modules
 
 
@@ -392,3 +394,27 @@ def test_unparseable_deep_nesting_is_skipped(tmp_path, capsys):
     modules = load_modules([tmp_path], [])
     assert [m.path.name for m in modules] == ["ok.py"]
     assert "skipping" in capsys.readouterr().err
+
+
+SKILL = Path(__file__).parents[1] / "skills" / "fix-snipsnap-report" / "SKILL.md"
+
+
+def test_skill_matches_report_schema_and_cli(capsys):
+    text = SKILL.read_text()
+
+    assert f"`version == {Report.model_fields['version'].default}`" in text
+    for section in ("dead_code", "test_only", "duplicates"):
+        assert section in Report.model_fields
+        assert f"`{section}`" in text
+
+    jq_fields = re.search(r"\{([a-z_,]+)\}", text)
+    assert jq_fields is not None
+    assert set(jq_fields.group(1).split(",")) <= set(DeadCodeFinding.model_fields)
+
+    with pytest.raises(SystemExit):
+        main(["scan", "--help"])
+    scan_help = capsys.readouterr().out
+    for line in text.splitlines():
+        if match := re.search(r"snipsnap scan([^`]*)`", line):
+            for flag in re.findall(r"(?<![\w-])--?[a-z][a-z-]*", match.group(1)):
+                assert flag in scan_help, f"skill uses unknown flag {flag}"

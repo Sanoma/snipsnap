@@ -79,6 +79,16 @@ Line ranges cover the whole definition (including decorators for duplicates). Fo
 
 **Duplicates** compare normalized ASTs: function names, docstrings, type annotations, decorators and the names of parameters/locals are ignored. With `--similarity`, functions whose structure is similar enough are grouped too.
 
+## Agent skill
+
+`skills/fix-snipsnap-report/SKILL.md` is a Claude Code skill that applies a report to the codebase (verifies each finding, deletes or merges code, re-scans). It lives here so it changes together with the report format. Link it into your user skills to use it everywhere:
+
+```sh
+ln -s "$PWD/skills/fix-snipsnap-report" ~/.claude/skills/fix-snipsnap-report
+```
+
+A test checks the skill against the report schema and CLI flags, so it fails when they drift apart.
+
 ## Develop
 
 ```sh
