@@ -12,75 +12,18 @@ as used.
 """
 
 import ast
-import re
-from collections import Counter, defaultdict
-from collections.abc import Iterator
+from collections import defaultdict
 from collections.abc import Set as AbstractSet
 
+from .astutils import DefNode, collect_loaded_names, collect_references, end_line
 from .models import DeadItem, DeadKind
 from .project import Module
 
-_IDENT = re.compile(r"[A-Za-z_]\w*")
-_MAX_STRING_REF_LEN = 100
 _TEST_HOOK_PREFIXES = ("test", "Test", "setup", "teardown", "pytest_")
 
 
 def _is_dunder(name: str) -> bool:
     return name.startswith("__") and name.endswith("__")
-
-
-def _docstring_node(node: ast.AST) -> ast.Constant | None:
-    body = getattr(node, "body", None)
-    if body and isinstance(body[0], ast.Expr):
-        value = body[0].value
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            return value
-    return None
-
-
-def _walk_pruned(root: ast.AST, skip: AbstractSet[int]) -> Iterator[ast.AST]:
-    """Walk over the abstract syntax tree; skips over nodes of which IDs
-    are part of the skip set."""
-    stack = [root]
-    while stack:
-        node = stack.pop()
-        if node is not root and id(node) in skip:
-            continue
-        yield node
-        stack.extend(ast.iter_child_nodes(node))
-
-
-def collect_references(root: ast.AST, skip: AbstractSet[int] = frozenset()) -> Counter[str]:
-    """Count name references under ``root``, ignoring the subtrees whose node id is in ``skip``.
-
-    ``root`` itself is never skipped, so a definition's own references can be counted
-    while the definitions nested inside it are left out.
-    """
-    refs: Counter[str] = Counter()
-    docstrings = {
-        id(d)
-        for n in ast.walk(root)
-        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-        and (d := _docstring_node(n)) is not None
-    }
-    for node in _walk_pruned(root, skip):
-        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Store):
-            refs[node.id] += 1
-        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
-            refs[node.attr] += 1
-        elif isinstance(node, ast.ImportFrom):
-            refs.update(a.name for a in node.names)
-        elif isinstance(node, ast.Import):
-            refs.update(a.name.split(".")[0] for a in node.names)
-        elif (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and id(node) not in docstrings
-            and len(node.value) <= _MAX_STRING_REF_LEN
-        ):
-            # forward-reference annotations, __all__, getattr(obj, "name")
-            refs.update(_IDENT.findall(node.value))
-    return refs
 
 
 class _Definitions(ast.NodeVisitor):
@@ -92,9 +35,7 @@ class _Definitions(ast.NodeVisitor):
         self.found: list[tuple[DeadItem, ast.AST]] = []
         self._class_stack: list[ast.ClassDef] = []
 
-    def _record(
-        self, kind: DeadKind, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
-    ) -> None:
+    def _record(self, kind: DeadKind, node: DefNode) -> None:
         qualname = ".".join([*(c.name for c in self._class_stack), node.name])
         item = DeadItem(
             kind=kind,
@@ -102,11 +43,11 @@ class _Definitions(ast.NodeVisitor):
             qualname=qualname,
             path=self.module.path.as_posix(),
             line=node.lineno,
-            end_line=node.end_lineno or node.lineno,
+            end_line=end_line(node),
         )
         self.found.append((item, node))
 
-    def _skippable(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
+    def _skippable(self, node: DefNode) -> bool:
         name = node.name
         if _is_dunder(name) or node.decorator_list:
             return True
@@ -158,7 +99,7 @@ def _unused_imports(module: Module) -> list[DeadItem]:
                 bound.append(((a.asname or a.name), node))
     if not bound:
         return []
-    used = _collect_names_used_in_file(module)
+    used = collect_loaded_names(module.tree)
     return [
         DeadItem(
             kind="import",
@@ -166,25 +107,11 @@ def _unused_imports(module: Module) -> list[DeadItem]:
             qualname=name,
             path=module.path.as_posix(),
             line=stmt.lineno,
-            end_line=stmt.end_lineno or stmt.lineno,
+            end_line=end_line(stmt),
         )
         for name, stmt in bound
         if name not in used
     ]
-
-
-def _collect_names_used_in_file(module: Module) -> set[str]:
-    used: set[str] = set()
-    for node in ast.walk(module.tree):
-        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Store):
-            used.add(node.id)
-        elif (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and len(node.value) <= _MAX_STRING_REF_LEN
-        ):
-            used.update(_IDENT.findall(node.value))
-    return used
 
 
 def live_names(

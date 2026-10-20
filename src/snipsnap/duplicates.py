@@ -15,10 +15,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from .astutils import FuncNode, docstring_node, end_line, start_line
 from .models import DuplicateGroup, FunctionRef
 from .project import Module
-
-FuncNode = ast.FunctionDef | ast.AsyncFunctionDef
 
 
 class _Candidate(BaseModel):
@@ -41,12 +40,7 @@ def _iter_functions(tree: ast.AST, prefix: str = "") -> Iterator[tuple[str, Func
 
 
 def _strip_docstring(node: FuncNode) -> None:
-    if (
-        node.body
-        and isinstance(node.body[0], ast.Expr)
-        and isinstance(node.body[0].value, ast.Constant)
-        and isinstance(node.body[0].value.value, str)
-    ):
+    if docstring_node(node) is not None:
         node.body = node.body[1:] or [ast.Pass()]
 
 
@@ -87,27 +81,11 @@ def _normalize(func: FuncNode) -> FuncNode:
     return node
 
 
-def _start_line(node: FuncNode) -> int:
-    """First line including decorators, so a deletion range is complete."""
-    return min([node.lineno, *(d.lineno for d in node.decorator_list)])
-
-
-def _end_line(node: FuncNode) -> int:
-    return node.end_lineno or node.lineno
-
-
 def _body_lines(node: FuncNode) -> int:
-    body = node.body
-    if (
-        body
-        and isinstance(body[0], ast.Expr)
-        and isinstance(body[0].value, ast.Constant)
-        and isinstance(body[0].value.value, str)
-    ):
-        body = body[1:]
+    body = node.body[1:] if docstring_node(node) is not None else node.body
     if not body:
         return 0
-    return (_end_line(node) - body[0].lineno) + 1
+    return (end_line(node) - body[0].lineno) + 1
 
 
 def _candidates(modules: list[Module], min_lines: int) -> list[_Candidate]:
@@ -122,8 +100,8 @@ def _candidates(modules: list[Module], min_lines: int) -> list[_Candidate]:
                     ref=FunctionRef(
                         qualname=qualname,
                         path=module.path.as_posix(),
-                        line=_start_line(func),
-                        end_line=_end_line(func),
+                        line=start_line(func),
+                        end_line=end_line(func),
                     ),
                     key=ast.dump(normalized, annotate_fields=False, include_attributes=False),
                     shape=[type(n).__name__ for n in ast.walk(normalized)],

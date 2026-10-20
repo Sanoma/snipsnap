@@ -7,7 +7,8 @@ test-only function calls are therefore reported as well, including recursive
 functions and groups of functions that only call each other.
 """
 
-from .deadcode import collect_references, definitions, live_names
+from .astutils import collect_references
+from .deadcode import definitions, live_names
 from .models import DeadItem, OnlyTestedItem
 from .project import Module
 
