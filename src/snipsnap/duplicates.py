@@ -32,7 +32,7 @@ class _Candidate(BaseModel):
 def _iter_functions(tree: ast.AST, prefix: str = "") -> Iterator[tuple[str, FuncNode]]:
     """Yield (qualname, node) for module-level functions and methods (any class depth)."""
     for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, FuncNode):
             yield f"{prefix}{node.name}", node
         elif isinstance(node, ast.ClassDef):
             yield from _iter_functions(node, f"{prefix}{node.name}.")

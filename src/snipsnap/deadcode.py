@@ -39,6 +39,8 @@ def _docstring_node(node: ast.AST) -> ast.Constant | None:
 
 
 def _walk_pruned(root: ast.AST, skip: AbstractSet[int]) -> Iterator[ast.AST]:
+    """Walk over the abstract syntax tree; skips over nodes of which IDs
+    are part of the skip set."""
     stack = [root]
     while stack:
         node = stack.pop()
@@ -223,7 +225,8 @@ def find_dead_code(
     include_overrides: bool = False,
 ) -> list[DeadItem]:
     defs = [pair for module in modules for pair in definitions(module, include_overrides)]
-    live = live_names(modules, defs, {"main"} | entry_points)
+    seeds = entry_points | {"main"}
+    live = live_names(modules=modules, defs=defs, seeds=seeds)
 
     items = [item for item, _ in defs if item.name not in live]
     for module in modules:
