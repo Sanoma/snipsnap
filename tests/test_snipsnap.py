@@ -1,5 +1,4 @@
 import json
-import re
 import textwrap
 from pathlib import Path
 
@@ -8,7 +7,6 @@ import pytest
 from snipsnap.cli import main
 from snipsnap.deadcode import find_dead_code
 from snipsnap.duplicates import find_duplicates
-from snipsnap.models import DeadCodeFinding, Report
 from snipsnap.project import entry_point_names, load_modules
 
 
