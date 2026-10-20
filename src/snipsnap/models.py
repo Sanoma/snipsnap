@@ -72,6 +72,7 @@ class Summary(_Model):
     dead_code: int
     duplicate_groups: int
     test_only: int = 0
+    duration_seconds: float | None
 
 
 class Report(_Model):

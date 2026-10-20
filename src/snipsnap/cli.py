@@ -7,6 +7,7 @@ snipsnap show REPORT.json            pretty-print a saved JSON report
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 from .deadcode import find_dead_code
@@ -132,6 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _scan(args: argparse.Namespace) -> int:
+    started = time.perf_counter()
     root = common_root(args.paths)
     modules = load_modules(args.paths, args.exclude, root)
     entry_points: set[str] = set()
@@ -155,7 +157,18 @@ def _scan(args: argparse.Namespace) -> int:
         else []
     )
     analyses = _ANALYSES_BY_ONLY[args.only]
-    report = build_report(root, len(modules), dead, dupes, args.with_source, analyses, only_tested)
+    ended = time.perf_counter()
+
+    report = build_report(
+        root,
+        len(modules),
+        dead,
+        dupes,
+        args.with_source,
+        analyses,
+        only_tested,
+        duration_seconds=round(ended - started, 3),
+    )
 
     if args.output:
         args.output.write_text(report.to_json() + "\n", encoding="utf-8")

@@ -45,7 +45,8 @@ snipsnap show report.json [--only dead|duplicates|test-only] [--no-color]
   "version": 1,
   "root": "/abs/path",              // all "path" values are relative to this
   "summary": {"files_scanned": 12, "analyses": ["dead_code", "duplicates", "test_only"],
-              "dead_code": 3, "duplicate_groups": 1, "test_only": 1},
+              "dead_code": 3, "duplicate_groups": 1, "test_only": 1,
+              "duration_seconds": 0.042},   // wall-clock scan time; not shown in the text output
   "dead_code": [{
     "id": "dead-1", "kind": "function",   // function | method | class | import
     "name": "helper", "qualname": "Cls.helper",

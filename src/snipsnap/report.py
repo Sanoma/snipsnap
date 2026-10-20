@@ -48,6 +48,7 @@ def build_report(
     with_source: bool = False,
     analyses: tuple[Analysis, ...] = ("dead_code", "duplicates", "test_only"),
     only_tested: list[OnlyTestedItem] | None = None,
+    duration_seconds: float | None = None,
 ) -> Report:
     def source(item: DeadItem | FunctionRef) -> str | None:
         return _source(root, item.path, item.line, item.end_line) if with_source else None
@@ -88,6 +89,7 @@ def build_report(
             dead_code=len(dead_findings),
             duplicate_groups=len(dup_findings),
             test_only=len(test_only_findings),
+            duration_seconds=duration_seconds,
         ),
         dead_code=dead_findings,
         duplicates=dup_findings,
