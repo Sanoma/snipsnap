@@ -36,7 +36,7 @@ snipsnap scan -o report.json --with-source
 snipsnap show report.json [--only dead|duplicates|test-only] [--no-color]
 ```
 
-`.venv`, `build`, `dist`, caches, etc. are skipped automatically.
+`.venv`, `build`, `dist`, caches, etc. are skipped automatically. Inside a git repository, files ignored by `.gitignore` are skipped too.
 
 ## JSON report
 

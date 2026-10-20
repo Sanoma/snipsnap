@@ -1,4 +1,5 @@
 import json
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -392,3 +393,23 @@ def test_unparseable_deep_nesting_is_skipped(tmp_path, capsys):
     modules = load_modules([tmp_path], [])
     assert [m.path.name for m in modules] == ["ok.py"]
     assert "skipping" in capsys.readouterr().err
+
+
+def test_gitignored_files_are_not_scanned(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    write(tmp_path, ".gitignore", "ignored/\n")
+    write(tmp_path, "kept.py", "def a(): pass\n")
+    write(tmp_path, "ignored/skipped.py", "def b(): pass\n")
+
+    modules = load_modules([tmp_path], [])
+
+    assert [m.path.as_posix() for m in modules] == ["kept.py"]
+
+
+def test_files_are_scanned_outside_a_git_repository(tmp_path):
+    write(tmp_path, "ignored/found.py", "def b(): pass\n")
+    write(tmp_path, "node_modules/skipped.py", "def c(): pass\n")
+
+    modules = load_modules([tmp_path], [])
+
+    assert [m.path.as_posix() for m in modules] == ["ignored/found.py"]

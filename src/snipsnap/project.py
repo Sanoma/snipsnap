@@ -3,6 +3,7 @@
 import ast
 import fnmatch
 import os
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator
@@ -22,6 +23,7 @@ SKIP_DIRS = {
     "dist",
     ".tox",
     ".nox",
+    ".github",
     ".mypy_cache",
     ".ruff_cache",
     ".pytest_cache",
@@ -51,19 +53,51 @@ def _is_excluded(rel: Path, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(posix, p) or fnmatch.fnmatch(rel.name, p) for p in patterns)
 
 
+def _is_skipped_dir(name: str) -> bool:
+    return name in SKIP_DIRS or name.endswith(".egg-info")
+
+
+def _git_python_files(root: Path) -> list[Path] | None:
+    """Tracked and untracked-but-not-ignored ``.py`` files, or None outside a git repository."""
+    try:
+        result = subprocess.run(
+            [
+                *("git", "-C", str(root), "ls-files", "-z"),
+                *("--cached", "--others", "--exclude-standard", "--", "*.py"),
+            ],
+            capture_output=True,
+            check=True,
+        )
+    except OSError, subprocess.CalledProcessError:
+        return None
+    rels = (Path(name) for name in result.stdout.decode().split("\0") if name)
+    return [
+        root / rel
+        for rel in rels
+        if not any(_is_skipped_dir(part) for part in rel.parts[:-1]) and (root / rel).is_file()
+    ]
+
+
+def _walked_python_files(root: Path) -> list[Path]:
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        # prune in place so os.walk never descends into node_modules, .venv, ...
+        dirnames[:] = [d for d in dirnames if not _is_skipped_dir(d)]
+        found.extend(Path(dirpath, f) for f in filenames if f.endswith(".py"))
+    return found
+
+
 def _iter_files(root: Path, excludes: list[str], base: Path) -> Iterator[Path]:
     if root.is_file():
         if not _is_excluded(root.resolve().relative_to(base), excludes):
             yield root
         return
-    for path in sorted(root.rglob("*.py")):
-        rel = path.relative_to(root)
-        parts = rel.parts[:-1]
-        if any(p in SKIP_DIRS or p.endswith(".egg-info") for p in parts):
-            continue
-        if _is_excluded(path.resolve().relative_to(base), excludes):
-            continue
-        yield path
+    found = _git_python_files(root)
+    if found is None:
+        found = _walked_python_files(root)
+    for path in sorted(found):
+        if not _is_excluded(path.resolve().relative_to(base), excludes):
+            yield path
 
 
 def common_root(paths: list[Path]) -> Path:
