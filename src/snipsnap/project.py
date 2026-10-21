@@ -37,7 +37,7 @@ class Module(BaseModel):
     path: Path  # path relative to the scan root, used for display
     tree: ast.Module
     # analysed (its code counts as live usage) but never reported on
-    findings_excluded: bool = False
+    ignored: bool = False
 
     @property
     def is_test(self) -> bool:
@@ -112,7 +112,7 @@ def load_modules(
     paths: list[Path],
     excludes: list[str],
     root: Path | None = None,
-    findings_excludes: list[str] | None = None,
+    ignores: list[str] | None = None,
 ) -> list[Module]:
     base = root or common_root(paths)
     modules: list[Module] = []
@@ -128,7 +128,7 @@ def load_modules(
                 Module(
                     path=rel,
                     tree=tree,
-                    findings_excluded=_is_excluded(rel, findings_excludes or []),
+                    ignored=_is_excluded(rel, ignores or []),
                 )
             )
     return modules

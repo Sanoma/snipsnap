@@ -415,7 +415,7 @@ def test_files_are_scanned_outside_a_git_repository(tmp_path):
     assert [m.path.as_posix() for m in modules] == ["ignored/found.py"]
 
 
-def test_exclude_findings_keeps_code_as_live_usage_but_unreported(tmp_path):
+def test_ignore_keeps_code_as_live_usage_but_unreported(tmp_path):
     write(tmp_path, "src/app.py", "def helper(): pass\ndef orphan(): pass\n")
     write(
         tmp_path,
@@ -437,5 +437,5 @@ def test_exclude_findings_keeps_code_as_live_usage_but_unreported(tmp_path):
     assert ("src/app.py", "helper") in {
         (i.path, i.name) for i in find_dead_code(load_modules(paths, ["alembic/*"]), set())
     }
-    # findings-excluded: helper stays alive, nothing is reported for the migration
-    assert dead(findings_excludes=["alembic/versions/*"]) == {("src/app.py", "orphan")}
+    # ignored: helper stays alive, nothing is reported for the migration
+    assert dead(ignores=["alembic/versions/*"]) == {("src/app.py", "orphan")}

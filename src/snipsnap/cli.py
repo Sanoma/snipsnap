@@ -64,12 +64,11 @@ def _add_scan_arguments(p: argparse.ArgumentParser) -> None:
         help="glob of paths to skip, matched against the relative path or file name (repeatable)",
     )
     p.add_argument(
-        "--exclude-findings",
+        "--ignore",
         action="append",
         default=[],
         metavar="GLOB",
-        help="glob of paths to analyze but not report findings for, e.g. alembic migrations "
-        "that are only invoked externally but still call into your code (repeatable)",
+        help="glob of paths to analyze but not report findings for (repeatable)",
     )
     p.add_argument(
         "--min-lines",
@@ -143,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _scan(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     root = common_root(args.paths)
-    modules = load_modules(args.paths, args.exclude, root, args.exclude_findings)
+    modules = load_modules(args.paths, args.exclude, root, args.ignore)
     entry_points: set[str] = set()
     for path in args.paths:
         entry_points |= entry_point_names(path)

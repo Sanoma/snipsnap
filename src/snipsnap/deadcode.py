@@ -75,7 +75,7 @@ class _Definitions(ast.NodeVisitor):
 
 
 def definitions(module: Module, include_overrides: bool = False) -> list[tuple[DeadItem, ast.AST]]:
-    if module.findings_excluded:
+    if module.ignored:
         return []  # untracked definitions are live roots, so what they call stays alive
     collector = _Definitions(module, include_overrides)
     collector.visit(module.tree)
@@ -83,7 +83,7 @@ def definitions(module: Module, include_overrides: bool = False) -> list[tuple[D
 
 
 def _unused_imports(module: Module) -> list[DeadItem]:
-    if module.path.name == "__init__.py" or module.findings_excluded:
+    if module.path.name == "__init__.py" or module.ignored:
         return []  # imports there are usually re-exports
     bound: list[tuple[str, ast.stmt]] = []
     for node in ast.walk(module.tree):

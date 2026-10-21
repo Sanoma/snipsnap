@@ -21,7 +21,7 @@ snipsnap scan [PATH ...]
 | --- | --- |
 | `--only dead\|duplicates\|test-only` | run one analysis |
 | `--exclude GLOB` | skip paths entirely: not analyzed, not reported (repeatable) |
-| `--exclude-findings GLOB` | analyze paths but report nothing for them (repeatable); their code counts as live usage, so e.g. `alembic/versions/*` migrations keep the `src` functions they call from being flagged |
+| `--ignore GLOB` | analyze paths but report nothing for them (repeatable) |
 | `--min-lines N` | smallest function body considered for duplicates (default 5) |
 | `--similarity 0.9` | also report near-duplicates (default `1.0` = exact only) |
 | `--include-overrides` | also report unused methods of subclasses |
@@ -38,6 +38,17 @@ snipsnap show report.json [--only dead|duplicates|test-only] [--no-color]
 ```
 
 `.venv`, `build`, `dist`, caches, etc. are skipped automatically. Inside a git repository, files ignored by `.gitignore` are skipped too.
+
+### Excluding vs. ignoring
+
+- `--exclude GLOB` drops matching files from the scan entirely. Nothing in them is analyzed, so anything they call can look unused.
+- `--ignore GLOB` still analyzes matching files but never reports findings for them (dead code, duplicates, test-only). Their code counts as live usage. Use it for code that is only invoked externally but calls into your code, such as Alembic migrations:
+
+```sh
+snipsnap scan . --ignore 'alembic/versions/*'
+```
+
+Globs are matched against the path relative to the scan root or the file name, and both flags can be repeated.
 
 ## JSON report
 
