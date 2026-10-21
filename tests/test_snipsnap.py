@@ -85,6 +85,108 @@ def test_dead_code(project):
     }
 
 
+def test_unused_variables(tmp_path):
+    write(
+        tmp_path,
+        "pkg/__init__.py",
+        "PUBLIC_API_CONSTANT = 1\n",
+    )
+    write(
+        tmp_path,
+        "pkg/m.py",
+        """
+        import sys
+
+        __version__ = "1"
+        __all__ = ["EXPORTED"]
+        USED = 1
+        EXPORTED = 2
+        UNUSED = 3
+        ANNOTATED: int = 4
+        BARE_ANNOTATION: int
+        CHAINED_A = CHAINED_B = 5
+        a, b = 1, 2
+        _ = sys.argv
+        ONLY_FOR_DEAD = 6
+        _private_unused = 7
+        counter = 0
+        counter += 1
+        MUTATED = []
+        MUTATED.append(USED)
+
+        if sys.platform == "win32":
+            IN_BRANCH = 8
+        else:
+            IN_BRANCH = 9
+
+        try:
+            import json
+        except ImportError:
+            json = None
+            FALLBACK = 10
+
+        def dead_func():
+            LOCAL = 1
+            return ONLY_FOR_DEAD
+
+        def main():
+            return json
+        """,
+    )
+    write(
+        tmp_path,
+        "tests/test_m.py",
+        "pytestmark = []\nhelper_value = 1\n\ndef test_x():\n    pass\n",
+    )
+    unused = {name for kind, name in dead_names(tmp_path) if kind == "variable"}
+    assert unused == {
+        "UNUSED",
+        "ANNOTATED",
+        "CHAINED_A",
+        "CHAINED_B",
+        "ONLY_FOR_DEAD",
+        "_private_unused",
+        "counter",
+        "IN_BRANCH",
+        "FALLBACK",
+        "helper_value",
+    }
+
+
+def test_variable_used_from_another_module_or_tests_is_live(tmp_path):
+    write(tmp_path, "lib.py", "LIMIT = 10\nOTHER = 1\nTEST_ONLY = 2\n\ndef main():\n    pass\n")
+    write(tmp_path, "app.py", "import lib\n\nprint(lib.LIMIT)\nprint(lib.OTHER)\n")
+    write(
+        tmp_path, "tests/test_lib.py", "from lib import TEST_ONLY\n\ndef test_x():\n    TEST_ONLY\n"
+    )
+    assert dead_names(tmp_path) == set()
+
+
+def test_same_named_variable_in_unrelated_module_does_not_keep_it_alive(tmp_path):
+    write(tmp_path, "src/a/config.py", "PROMPTS = {'x': 1}\nSHARED = 1\nVIA_ATTR = 1\nSTAR = 1\n")
+    write(tmp_path, "src/b/config.py", "PROMPTS = {'y': 2}\n")
+    write(tmp_path, "src/b/use.py", "from .config import PROMPTS\n\nprint(PROMPTS)\n")
+    write(
+        tmp_path,
+        "src/a/use.py",
+        """
+        from a import config
+        from a.config import SHARED
+        from a.config import *
+
+        print(config.VIA_ATTR, SHARED, STAR)
+        """,
+    )
+    write(tmp_path, "src/c/config.py", "PREFIXED = 1\n")
+    write(tmp_path, "src/c/use.py", "from src.c.config import PREFIXED\n\nprint(PREFIXED)\n")
+    variables = {
+        (i.path, i.name)
+        for i in find_dead_code(load_modules([tmp_path / "src"], []), set())
+        if i.kind == "variable"
+    }
+    assert variables == {("a/config.py", "PROMPTS")}
+
+
 def test_include_overrides(project):
     assert ("method", "other_hook") in dead_names(project, include_overrides=True)
     assert ("method", "hook") in dead_names(project)

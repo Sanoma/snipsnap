@@ -39,6 +39,7 @@ Apply automatically once each finding passes verification. For every finding:
    - function/method/class: remove lines `line`..`end_line`, plus a directly preceding comment that belongs to it, and collapse the extra blank lines so spacing stays PEP 8.
    - if removing leaves an empty body (a class with only that method, an `if`/`else` branch), put `pass` or `...` there rather than leaving invalid code.
    - `import`: remove only the unused *name*. For `import a, b` or `from x import a, b` keep the others; drop the whole statement only if nothing remains. Skip imports with `# noqa`, imports inside `try/except ImportError`, and imports that exist for side effects.
+   - `variable`: remove the assignment statement (`line`..`end_line`). For chained assignments (`a = b = 1`) remove only the reported name. If the right-hand side has side effects (a call that registers, writes or connects), keep it as a bare expression statement instead. Skip variables that settings loaders, templates or plugins read by name (e.g. Django `settings.py`).
 4. **Clean up the fallout.** Deleting code can orphan imports. Run the linter's unused-import fix (`ruff check --select F401 --fix <files>`) or remove them by hand.
 
 Deleting code can make *more* code dead (callees of the removed code). That is expected: after finishing the pass, re-scan and repeat until no new dead-code findings appear (cap at 5 rounds, and say so if you hit it).

@@ -24,6 +24,10 @@ _DEAD_ACTIONS = {
     "function": "delete the function if it is truly unused (check for dynamic use first)",
     "method": "delete the method if it is truly unused (check for dynamic use first)",
     "class": "delete the class if it is truly unused (check for dynamic use first)",
+    "variable": (
+        "delete the module-level variable if it is truly unused (check for dynamic use first); "
+        "keep the right-hand side if evaluating it has side effects"
+    ),
 }
 _TEST_ONLY_ACTION = (
     "no production code uses this; delete it together with the tests that exercise it "
