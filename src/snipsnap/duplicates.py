@@ -91,6 +91,8 @@ def _body_lines(node: FuncNode) -> int:
 def _candidates(modules: list[Module], min_lines: int) -> list[_Candidate]:
     result: list[_Candidate] = []
     for module in modules:
+        if module.findings_excluded:
+            continue
         for qualname, func in _iter_functions(module.tree):
             if _body_lines(func) < min_lines:
                 continue

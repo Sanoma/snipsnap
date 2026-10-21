@@ -36,6 +36,8 @@ class Module(BaseModel):
 
     path: Path  # path relative to the scan root, used for display
     tree: ast.Module
+    # analysed (its code counts as live usage) but never reported on
+    findings_excluded: bool = False
 
     @property
     def is_test(self) -> bool:
@@ -106,7 +108,12 @@ def common_root(paths: list[Path]) -> Path:
     return Path(os.path.commonpath(bases))
 
 
-def load_modules(paths: list[Path], excludes: list[str], root: Path | None = None) -> list[Module]:
+def load_modules(
+    paths: list[Path],
+    excludes: list[str],
+    root: Path | None = None,
+    findings_excludes: list[str] | None = None,
+) -> list[Module]:
     base = root or common_root(paths)
     modules: list[Module] = []
     for scan in paths:
@@ -116,7 +123,14 @@ def load_modules(paths: list[Path], excludes: list[str], root: Path | None = Non
             except (SyntaxError, UnicodeDecodeError, ValueError, RecursionError) as exc:
                 print(f"snipsnap: skipping {file}: {exc}", file=sys.stderr)
                 continue
-            modules.append(Module(path=file.resolve().relative_to(base), tree=tree))
+            rel = file.resolve().relative_to(base)
+            modules.append(
+                Module(
+                    path=rel,
+                    tree=tree,
+                    findings_excluded=_is_excluded(rel, findings_excludes or []),
+                )
+            )
     return modules
 
 

@@ -20,7 +20,8 @@ snipsnap scan [PATH ...]
 | Flag | Meaning |
 | --- | --- |
 | `--only dead\|duplicates\|test-only` | run one analysis |
-| `--exclude GLOB` | skip paths (repeatable) |
+| `--exclude GLOB` | skip paths entirely: not analyzed, not reported (repeatable) |
+| `--exclude-findings GLOB` | analyze paths but report nothing for them (repeatable); their code counts as live usage, so e.g. `alembic/versions/*` migrations keep the `src` functions they call from being flagged |
 | `--min-lines N` | smallest function body considered for duplicates (default 5) |
 | `--similarity 0.9` | also report near-duplicates (default `1.0` = exact only) |
 | `--include-overrides` | also report unused methods of subclasses |
