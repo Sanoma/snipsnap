@@ -541,3 +541,23 @@ def test_ignore_keeps_code_as_live_usage_but_unreported(tmp_path):
     }
     # ignored: helper stays alive, nothing is reported for the migration
     assert dead(ignores=["alembic/versions/*"]) == {("src/app.py", "orphan")}
+
+
+def test_ignored_module_under_tests_dir_counts_as_production_usage(tmp_path):
+    from snipsnap.testonly import find_only_tested
+
+    write(tmp_path, "lib.py", "def via_ignored():\n    pass\n\ndef via_tests():\n    pass\n")
+    write(tmp_path, "tests/e2e/runner.py", "from lib import via_ignored\n\nvia_ignored()\n")
+    write(
+        tmp_path,
+        "tests/test_lib.py",
+        "from lib import via_tests\n\ndef test_x():\n    via_tests()\n",
+    )
+
+    def flagged(ignores: list[str]) -> list[str]:
+        modules = load_modules([tmp_path], [], ignores=ignores)
+        dead = find_dead_code(modules, set())
+        return [i.name for i in find_only_tested(modules, set(), dead)]
+
+    assert flagged([]) == ["via_ignored", "via_tests"]
+    assert flagged(["tests/e2e/*"]) == ["via_tests"]

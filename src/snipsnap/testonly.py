@@ -19,8 +19,10 @@ def find_only_tested(
     dead: list[DeadItem],
     include_overrides: bool = False,
 ) -> list[OnlyTestedItem]:
-    prod = [m for m in modules if not m.is_test]
-    tests = [m for m in modules if m.is_test]
+    # ignored modules are never reported on, so their usage counts as production usage
+    # even under a tests directory; definitions() already yields nothing for them
+    prod = [m for m in modules if not m.is_test or m.ignored]
+    tests = [m for m in modules if m.is_test and not m.ignored]
     if not prod or not tests:
         return []
 
