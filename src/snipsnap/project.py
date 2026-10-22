@@ -3,6 +3,7 @@
 import ast
 import fnmatch
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -30,6 +31,13 @@ SKIP_DIRS = {
     "site-packages",
 }
 
+_TEST_WORDS = {"test", "tests"}
+
+
+def _is_test_dir(name: str) -> bool:
+    # word-based so "tests-integration" and "__tests__" match but "latest" does not
+    return not _TEST_WORDS.isdisjoint(re.split(r"[^a-z0-9]+", name.lower()))
+
 
 class Module(BaseModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -46,7 +54,7 @@ class Module(BaseModel):
             name == "conftest.py"
             or name.startswith("test_")
             or name.endswith("_test.py")
-            or "tests" in self.path.parts
+            or any(_is_test_dir(part) for part in self.path.parts[:-1])
         )
 
 

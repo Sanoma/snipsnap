@@ -414,6 +414,38 @@ def test_only_tested_needs_tests(tmp_path):
     assert find_only_tested(modules, set(), find_dead_code(modules, set())) == []
 
 
+@pytest.mark.parametrize(
+    "test_dir",
+    ["tests", "test", "__tests__", "tests-integration", "integration_tests", "src/pkg/tests"],
+)
+def test_helpers_in_test_directories_are_not_test_only(tmp_path, test_dir):
+    from snipsnap.testonly import find_only_tested
+
+    write(tmp_path, "lib.py", "def used():\n    return 1\n")
+    write(tmp_path, f"{test_dir}/helpers.py", "def helper():\n    return 1\n")
+    write(
+        tmp_path,
+        f"{test_dir}/test_it.py",
+        "from helpers import helper\nfrom lib import used\n\n"
+        "def test_it():\n    helper()\n    used()\n",
+    )
+    modules = load_modules([tmp_path], [])
+    names = {i.name for i in find_only_tested(modules, set(), find_dead_code(modules, set()))}
+    assert names == {"used"}
+
+
+def test_directories_merely_containing_test_are_production(tmp_path):
+    from snipsnap.testonly import find_only_tested
+
+    write(tmp_path, "latest/helpers.py", "def helper():\n    return 1\n")
+    write(
+        tmp_path, "tests/test_it.py", "from helpers import helper\n\ndef test_it():\n    helper()\n"
+    )
+    modules = load_modules([tmp_path], [])
+    names = {i.name for i in find_only_tested(modules, set(), find_dead_code(modules, set()))}
+    assert names == {"helper"}
+
+
 def test_cli_reports_test_only_section(tested_project, capsys):
     assert (
         main(["scan", str(tested_project), "--json", "--only", "test-only", "--with-source"]) == 0
