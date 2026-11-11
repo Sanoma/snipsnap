@@ -17,12 +17,10 @@ from .project import common_root, entry_point_names, load_modules
 from .report import build_report, render_text
 from .testonly import find_only_tested
 
-_ANALYSES = ["dead", "duplicates", "test-only"]
-_ANALYSES_BY_ONLY: dict[str | None, tuple[Analysis, ...]] = {
-    None: ("dead_code", "duplicates", "test_only"),
-    "dead": ("dead_code",),
-    "duplicates": ("duplicates",),
-    "test-only": ("test_only",),
+_ANALYSIS_BY_OPTION: dict[str, Analysis] = {
+    "dead": "dead_code",
+    "duplicates": "duplicates",
+    "test-only": "test_only",
 }
 
 
@@ -55,7 +53,7 @@ def _add_scan_arguments(p: argparse.ArgumentParser) -> None:
         default=[Path(".")],
         help="files or directories to scan (default: current directory)",
     )
-    p.add_argument("--only", choices=_ANALYSES, help="run just one of the analyses")
+    p.add_argument("--only", choices=list(_ANALYSIS_BY_OPTION), help="run just one of the analyses")
     p.add_argument(
         "--exclude",
         action="append",
@@ -110,7 +108,9 @@ def _add_scan_arguments(p: argparse.ArgumentParser) -> None:
 
 def _add_show_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("report", help="report file, or - for stdin")
-    p.add_argument("--only", choices=_ANALYSES, help="show just one of the analyses")
+    p.add_argument(
+        "--only", choices=list(_ANALYSIS_BY_OPTION), help="show just one of the analyses"
+    )
     p.add_argument("--no-color", action="store_true")
 
 
@@ -142,39 +142,41 @@ def build_parser() -> argparse.ArgumentParser:
 def _scan(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     root = common_root(args.paths)
-    modules = load_modules(args.paths, args.exclude, root, args.ignore)
-    entry_points: set[str] = set()
-    for path in args.paths:
-        entry_points |= entry_point_names(path)
-
-    found_dead = (
-        []
-        if args.only == "duplicates"
-        else find_dead_code(modules, entry_points, args.include_overrides)
+    modules = load_modules(args.paths, args.exclude, root=root, ignores=args.ignore)
+    entry_points = set[str]().union(*map(entry_point_names, args.paths))
+    analyses = (
+        (_ANALYSIS_BY_OPTION[args.only],) if args.only else tuple(_ANALYSIS_BY_OPTION.values())
     )
-    dead = found_dead if args.only in (None, "dead") else []
+
+    # the test-only analysis needs the dead code to tell "unused" from "only tested"
+    found_dead = (
+        find_dead_code(modules, entry_points, include_overrides=args.include_overrides)
+        if "dead_code" in analyses or "test_only" in analyses
+        else []
+    )
+    dead = found_dead if "dead_code" in analyses else []
     dupes = (
-        find_duplicates(modules, args.min_lines, args.similarity)
-        if args.only in (None, "duplicates")
+        find_duplicates(modules, min_lines=args.min_lines, similarity=args.similarity)
+        if "duplicates" in analyses
         else []
     )
     only_tested = (
-        find_only_tested(modules, entry_points, found_dead, args.include_overrides)
-        if args.only in (None, "test-only")
+        find_only_tested(
+            modules, entry_points, found_dead, include_overrides=args.include_overrides
+        )
+        if "test_only" in analyses
         else []
     )
-    analyses = _ANALYSES_BY_ONLY[args.only]
-    ended = time.perf_counter()
 
     report = build_report(
         root,
         len(modules),
         dead,
         dupes,
-        args.with_source,
-        analyses,
-        only_tested,
-        duration_seconds=round(ended - started, 3),
+        only_tested=only_tested,
+        analyses=analyses,
+        with_source=args.with_source,
+        duration_seconds=round(time.perf_counter() - started, 3),
     )
 
     if args.output:
@@ -182,7 +184,7 @@ def _scan(args: argparse.Namespace) -> int:
     if args.json:
         print(report.to_json())
     else:
-        print(render_text(report, _use_color(), args.only))
+        print(render_text(report, color=_use_color(), only=args.only))
         if args.output:
             print(f"\nJSON report written to {args.output}")
 
@@ -201,13 +203,13 @@ def _show(args: argparse.Namespace) -> int:
         print(f"snipsnap: cannot read report: {exc}", file=sys.stderr)
         return 2
 
-    print(render_text(report, _use_color() and not args.no_color, args.only))
+    print(render_text(report, color=_use_color() and not args.no_color, only=args.only))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.handler(args))
+    return args.handler(args)
 
 
 if __name__ == "__main__":

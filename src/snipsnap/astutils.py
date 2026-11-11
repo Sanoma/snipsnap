@@ -64,8 +64,7 @@ def collect_references(root: ast.AST, skip: AbstractSet[int] = frozenset()) -> C
     docstrings = {
         id(d)
         for n in ast.walk(root)
-        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-        and (d := docstring_node(n)) is not None
+        if isinstance(n, ast.Module | DefNode) and (d := docstring_node(n)) is not None
     }
     for node in walk_pruned(root, skip):
         if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Store):

@@ -8,11 +8,11 @@ DeadKind = Literal["function", "method", "class", "import", "variable"]
 Analysis = Literal["dead_code", "duplicates", "test_only"]
 
 
-class _Model(BaseModel):
+class FrozenBaseModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class DeadItem(_Model):
+class DeadItem(FrozenBaseModel):
     kind: DeadKind
     name: str
     qualname: str
@@ -29,14 +29,14 @@ class OnlyTestedItem(DeadItem):
     )
 
 
-class FunctionRef(_Model):
+class FunctionRef(FrozenBaseModel):
     qualname: str
     path: str
     line: int = Field(ge=1, description="1-based, inclusive, includes decorators")
     end_line: int = Field(ge=1, description="1-based, inclusive")
 
 
-class DuplicateGroup(_Model):
+class DuplicateGroup(FrozenBaseModel):
     kind: Literal["exact", "similar"]
     similarity: float = Field(gt=0, le=1)
     functions: tuple[FunctionRef, ...]
@@ -58,7 +58,7 @@ class DuplicateFunction(FunctionRef):
     source: str | None = None
 
 
-class DuplicateFinding(_Model):
+class DuplicateFinding(FrozenBaseModel):
     id: str
     kind: Literal["exact", "similar"]
     similarity: float = Field(gt=0, le=1)
@@ -66,7 +66,7 @@ class DuplicateFinding(_Model):
     suggested_action: str
 
 
-class Summary(_Model):
+class Summary(FrozenBaseModel):
     files_scanned: int
     analyses: list[Analysis]
     dead_code: int
@@ -75,7 +75,7 @@ class Summary(_Model):
     duration_seconds: float | None
 
 
-class Report(_Model):
+class Report(FrozenBaseModel):
     version: Literal[1] = 1
     root: str = Field(description="all finding paths are relative to this directory")
     summary: Summary

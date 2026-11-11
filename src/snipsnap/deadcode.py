@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 
-from .astutils import DefNode, collect_loaded_names, collect_references, end_line
+from .astutils import DefNode, FuncNode, collect_loaded_names, collect_references, end_line
 from .models import DeadItem, DeadKind
 from .project import Module
 
@@ -28,10 +28,23 @@ def _is_dunder(name: str) -> bool:
     return name.startswith("__") and name.endswith("__")
 
 
+def _dead_item(
+    kind: DeadKind, name: str, module: Module, node: ast.stmt, qualname: str | None = None
+) -> DeadItem:
+    return DeadItem(
+        kind=kind,
+        name=name,
+        qualname=qualname or name,
+        path=module.path.as_posix(),
+        line=node.lineno,
+        end_line=end_line(node),
+    )
+
+
 class _Definitions(ast.NodeVisitor):
     """Collect module- and class-level definitions (not nested functions)."""
 
-    def __init__(self, module: Module, include_overrides: bool):
+    def __init__(self, module: Module, include_overrides: bool) -> None:
         self.module = module
         self.include_overrides = include_overrides
         self.found: list[tuple[DeadItem, ast.AST]] = []
@@ -39,15 +52,7 @@ class _Definitions(ast.NodeVisitor):
 
     def _record(self, kind: DeadKind, node: DefNode) -> None:
         qualname = ".".join([*(c.name for c in self._class_stack), node.name])
-        item = DeadItem(
-            kind=kind,
-            name=node.name,
-            qualname=qualname,
-            path=self.module.path.as_posix(),
-            line=node.lineno,
-            end_line=end_line(node),
-        )
-        self.found.append((item, node))
+        self.found.append((_dead_item(kind, node.name, self.module, node, qualname), node))
 
     def _skippable(self, node: DefNode) -> bool:
         name = node.name
@@ -63,7 +68,7 @@ class _Definitions(ast.NodeVisitor):
             self.visit(child)
         self._class_stack.pop()
 
-    def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    def _visit_function(self, node: FuncNode) -> None:
         # we never descend into function bodies, so a non-empty stack means "method"
         if not self._skippable(node):
             if not self._class_stack:
@@ -76,7 +81,9 @@ class _Definitions(ast.NodeVisitor):
     visit_AsyncFunctionDef = _visit_function
 
 
-def definitions(module: Module, include_overrides: bool = False) -> list[tuple[DeadItem, ast.AST]]:
+def definitions(
+    module: Module, *, include_overrides: bool = False
+) -> list[tuple[DeadItem, ast.AST]]:
     if module.ignored:
         return []  # untracked definitions are live roots, so what they call stays alive
     collector = _Definitions(module, include_overrides)
@@ -91,38 +98,27 @@ def _unused_imports(module: Module) -> list[DeadItem]:
     for node in ast.walk(module.tree):
         if isinstance(node, ast.Import):
             for a in node.names:
-                if a.asname and a.asname == a.name:
+                if a.asname == a.name:
                     continue  # explicit re-export idiom
-                bound.append(((a.asname or a.name.split(".")[0]), node))
+                bound.append((a.asname or a.name.split(".")[0], node))
         elif isinstance(node, ast.ImportFrom):
             if node.module == "__future__":
                 continue
             for a in node.names:
-                if a.name == "*" or (a.asname and a.asname == a.name):
+                if a.name == "*" or a.asname == a.name:
                     continue
-                bound.append(((a.asname or a.name), node))
+                bound.append((a.asname or a.name, node))
     if not bound:
         return []
     used = collect_loaded_names(module.tree)
-    return [
-        DeadItem(
-            kind="import",
-            name=name,
-            qualname=name,
-            path=module.path.as_posix(),
-            line=stmt.lineno,
-            end_line=end_line(stmt),
-        )
-        for name, stmt in bound
-        if name not in used
-    ]
+    return [_dead_item("import", name, module, stmt) for name, stmt in bound if name not in used]
 
 
 def _module_level_statements(body: list[ast.stmt]) -> Iterator[ast.stmt]:
     """Statements that run at import time: nested in if/try/with/for, but not in defs."""
     for stmt in body:
         yield stmt
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if isinstance(stmt, DefNode):
             continue
         for child in ast.iter_child_nodes(stmt):
             if isinstance(child, ast.stmt):
@@ -212,16 +208,7 @@ def _unused_variables(
                 continue
             if module.is_test and (name.startswith(_TEST_HOOK_PREFIXES) or name == "pytestmark"):
                 continue
-            items.append(
-                DeadItem(
-                    kind="variable",
-                    name=name,
-                    qualname=name,
-                    path=module.path.as_posix(),
-                    line=stmt.lineno,
-                    end_line=end_line(stmt),
-                )
-            )
+            items.append(_dead_item("variable", name, module, stmt))
     return items
 
 
@@ -260,18 +247,23 @@ def live_names(
 def find_dead_code(
     modules: list[Module],
     entry_points: set[str],
+    *,
     include_overrides: bool = False,
 ) -> list[DeadItem]:
-    defs = [pair for module in modules for pair in definitions(module, include_overrides)]
+    defs = [
+        pair
+        for module in modules
+        for pair in definitions(module, include_overrides=include_overrides)
+    ]
     seeds = entry_points | {"main"}
-    live = live_names(modules=modules, defs=defs, seeds=seeds)
+    live = live_names(modules, defs, seeds)
 
     items = [item for item, _ in defs if item.name not in live]
     refs = {m.path: collect_references(m.tree).keys() for m in modules}
     importers = _importers(modules)
     for module in modules:
         items.extend(_unused_imports(module))
-        visible = set(seeds) | refs[module.path]
+        visible = seeds | refs[module.path]
         for importer in importers.get(module.path, ()):
             visible |= refs[importer.path]
         items.extend(_unused_variables(module, live, visible))

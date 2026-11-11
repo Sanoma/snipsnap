@@ -10,19 +10,17 @@ import ast
 import copy
 from collections import defaultdict
 from collections.abc import Iterator
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Literal
-
-from pydantic import BaseModel, ConfigDict
 
 from .astutils import FuncNode, docstring_node, end_line, start_line
 from .models import DuplicateGroup, FunctionRef
 from .project import Module
 
 
-class _Candidate(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True, slots=True)
+class _Candidate:
     ref: FunctionRef
     key: str
     shape: list[str]
@@ -35,7 +33,7 @@ def _iter_functions(tree: ast.AST, prefix: str = "") -> Iterator[tuple[str, Func
             yield f"{prefix}{node.name}", node
         elif isinstance(node, ast.ClassDef):
             yield from _iter_functions(node, f"{prefix}{node.name}.")
-        elif isinstance(node, (ast.If, ast.Try, ast.With)):
+        elif isinstance(node, ast.If | ast.Try | ast.With):
             yield from _iter_functions(node, prefix)
 
 
@@ -142,7 +140,7 @@ def _find_similar(candidates: list[_Candidate], threshold: float) -> list[tuple[
                 lowest[i] = min(lowest.get(i, 1.0), ratio)
                 lowest[j] = min(lowest.get(j, 1.0), ratio)
 
-    clusters: dict[int, list[int]] = defaultdict(list)
+    clusters: defaultdict[int, list[int]] = defaultdict(list)
     for i in range(n):
         clusters[find(i)].append(i)
     return [
@@ -157,7 +155,7 @@ def find_duplicates(
 ) -> list[DuplicateGroup]:
     candidates = _candidates(modules, min_lines)
 
-    by_key: dict[str, list[_Candidate]] = defaultdict(list)
+    by_key: defaultdict[str, list[_Candidate]] = defaultdict(list)
     for c in candidates:
         by_key[c.key].append(c)
 

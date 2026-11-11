@@ -17,6 +17,7 @@ def find_only_tested(
     modules: list[Module],
     entry_points: set[str],
     dead: list[DeadItem],
+    *,
     include_overrides: bool = False,
 ) -> list[OnlyTestedItem]:
     # ignored modules are never reported on, so their usage counts as production usage
@@ -26,7 +27,9 @@ def find_only_tested(
     if not prod or not tests:
         return []
 
-    defs = [pair for module in prod for pair in definitions(module, include_overrides)]
+    defs = [
+        pair for module in prod for pair in definitions(module, include_overrides=include_overrides)
+    ]
     live = live_names(prod, defs, {"main"} | entry_points)
     dead_keys = {(d.path, d.line) for d in dead}
     flagged = [
@@ -39,8 +42,7 @@ def find_only_tested(
         item
         for item in flagged
         if not any(
-            other is not item
-            and other.path == item.path
+            other.path == item.path
             and other.line <= item.line
             and item.end_line <= other.end_line
             and (other.line, other.end_line) != (item.line, item.end_line)

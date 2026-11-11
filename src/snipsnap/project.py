@@ -7,10 +7,9 @@ import re
 import subprocess
 import sys
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-
-from pydantic import BaseModel, ConfigDict
 
 SKIP_DIRS = {
     ".git",
@@ -39,9 +38,8 @@ def _is_test_dir(name: str) -> bool:
     return not _TEST_WORDS.isdisjoint(re.split(r"[^a-z0-9]+", name.lower()))
 
 
-class Module(BaseModel):
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
+@dataclass(frozen=True, slots=True)
+class Module:
     path: Path  # path relative to the scan root, used for display
     tree: ast.Module
     # analysed (its code counts as live usage) but never reported on
@@ -58,7 +56,7 @@ class Module(BaseModel):
         )
 
 
-def _is_excluded(rel: Path, patterns: list[str]) -> bool:
+def _is_excluded(rel: Path, patterns: Sequence[str]) -> bool:
     posix = rel.as_posix()
     return any(fnmatch.fnmatch(posix, p) or fnmatch.fnmatch(rel.name, p) for p in patterns)
 
@@ -76,11 +74,12 @@ def _git_python_files(root: Path) -> list[Path] | None:
                 *("--cached", "--others", "--exclude-standard", "--", "*.py"),
             ],
             capture_output=True,
+            encoding="utf-8",
             check=True,
         )
     except OSError, subprocess.CalledProcessError:
         return None
-    rels = (Path(name) for name in result.stdout.decode().split("\0") if name)
+    rels = (Path(name) for name in result.stdout.split("\0") if name)
     return [
         root / rel
         for rel in rels
@@ -97,13 +96,12 @@ def _walked_python_files(root: Path) -> list[Path]:
     return found
 
 
-def _iter_files(root: Path, excludes: list[str], base: Path) -> Iterator[Path]:
+def _iter_files(root: Path, excludes: Sequence[str], base: Path) -> Iterator[Path]:
     if root.is_file():
         if not _is_excluded(root.resolve().relative_to(base), excludes):
             yield root
         return
-    found = _git_python_files(root)
-    if found is None:
+    if (found := _git_python_files(root)) is None:
         found = _walked_python_files(root)
     for path in sorted(found):
         if not _is_excluded(path.resolve().relative_to(base), excludes):
@@ -118,9 +116,10 @@ def common_root(paths: list[Path]) -> Path:
 
 def load_modules(
     paths: list[Path],
-    excludes: list[str],
+    excludes: Sequence[str],
+    *,
     root: Path | None = None,
-    ignores: list[str] | None = None,
+    ignores: Sequence[str] = (),
 ) -> list[Module]:
     base = root or common_root(paths)
     modules: list[Module] = []
@@ -136,7 +135,7 @@ def load_modules(
                 Module(
                     path=rel,
                     tree=tree,
-                    ignored=_is_excluded(rel, ignores or []),
+                    ignored=_is_excluded(rel, ignores),
                 )
             )
     return modules
@@ -156,8 +155,9 @@ def entry_point_names(root: Path) -> set[str]:
         *project.get("scripts", {}).values(),
         *project.get("gui-scripts", {}).values(),
     ]
-    names: set[str] = set()
-    for target in targets:
-        if ":" in target:
-            names.add(target.split(":", 1)[1].split("[")[0].strip().split(".")[0])
-    return names
+    # "pkg.module:object.attr [extra]" -> "object"
+    return {
+        obj.split("[")[0].strip().split(".")[0]
+        for _, sep, obj in (target.partition(":") for target in targets)
+        if sep
+    }

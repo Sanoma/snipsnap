@@ -1,5 +1,6 @@
 """Build the JSON report and render it for the terminal."""
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from .models import (
@@ -49,9 +50,10 @@ def build_report(
     n_files: int,
     dead: list[DeadItem],
     dupes: list[DuplicateGroup],
-    with_source: bool = False,
+    only_tested: Sequence[OnlyTestedItem] = (),
+    *,
     analyses: tuple[Analysis, ...] = ("dead_code", "duplicates", "test_only"),
-    only_tested: list[OnlyTestedItem] | None = None,
+    with_source: bool = False,
     duration_seconds: float | None = None,
 ) -> Report:
     def source(item: DeadItem | FunctionRef) -> str | None:
@@ -83,7 +85,7 @@ def build_report(
             suggested_action=_TEST_ONLY_ACTION,
             source=source(t),
         )
-        for i, t in enumerate(only_tested or [], 1)
+        for i, t in enumerate(only_tested, 1)
     ]
     return Report(
         root=str(root),
@@ -128,15 +130,14 @@ def _span(path: str, line: int, end_line: int) -> str:
     return f"{path}:{line}" if end_line == line else f"{path}:{line}-{end_line}"
 
 
-def render_text(report: Report, color: bool = False, only: str | None = None) -> str:
+def render_text(report: Report, *, color: bool = False, only: str | None = None) -> str:
     st = _Style(color)
     out: list[str] = []
     s = report.summary
     out.append(st.dim(f"Scanned {s.files_scanned} file(s) under {report.root}"))
 
     if only in (None, "dead") and "dead_code" in s.analyses:
-        out.append("")
-        out.append(st.bold(f"Dead code ({len(report.dead_code)})"))
+        out += ["", st.bold(f"Dead code ({len(report.dead_code)})")]
         for d in report.dead_code:
             where = st.cyan(_span(d.path, d.line, d.end_line))
             out.append(f"  {where}  {st.red('unused ' + d.kind)} {d.qualname}  {st.dim(d.id)}")
@@ -144,8 +145,7 @@ def render_text(report: Report, color: bool = False, only: str | None = None) ->
             out.append("  none")
 
     if only in (None, "test-only") and "test_only" in s.analyses:
-        out.append("")
-        out.append(st.bold(f"Only used by tests ({len(report.test_only)})"))
+        out += ["", st.bold(f"Only used by tests ({len(report.test_only)})")]
         for t in report.test_only:
             where = st.cyan(_span(t.path, t.line, t.end_line))
             out.append(f"  {where}  {st.yellow(t.kind)} {t.qualname}  {st.dim(t.id)}")
@@ -155,8 +155,7 @@ def render_text(report: Report, color: bool = False, only: str | None = None) ->
             out.append("  none")
 
     if only in (None, "duplicates") and "duplicates" in s.analyses:
-        out.append("")
-        out.append(st.bold(f"Duplicate functions ({len(report.duplicates)} group(s))"))
+        out += ["", st.bold(f"Duplicate functions ({len(report.duplicates)} group(s))")]
         for g in report.duplicates:
             label = "exact" if g.kind == "exact" else f"similar {g.similarity:.0%}"
             out.append(f"  {st.yellow(label)}  {st.dim(g.id)}")
