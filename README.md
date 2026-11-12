@@ -29,13 +29,14 @@ Put defaults in the `[tool.snipsnap]` table of your project's `pyproject.toml`. 
 include = ["src/*", "tests/*"]        # only scan matching files (default: everything)
 exclude = ["src/legacy/*"]            # not analyzed, not reported
 ignore = ["alembic/versions/*"]       # analyzed, not reported
-min-lines = 5
-similarity = 1.0
-include-overrides = false
-strict = false
+ignore-findings = ["3f9a1c7e2b40"]    # hashes of single findings to leave out
+min-lines = 5                         # minimum amount of lines for a function to be duplicate checked.
+similarity = 1.0                      # similarity threshold for duplicate checking
+include-overrides = false             # also report unused methods of subclasses
+strict = false                        # non-zero exit code for any findings
 ```
 
-Command line flags combine with the config: `--include`, `--exclude` and `--ignore` add to the configured globs, while `--min-lines`, `--similarity` override the config and `--include-overrides` / `--strict` turn the option on. As with the flags, globs are matched against the path relative to the scan root or the file name. Files left out by `include` are not analyzed at all, just like `exclude`.
+Command line flags combine with the config: `--include`, `--exclude`, `--ignore` and `--ignore-finding` add to the configured lists, while `--min-lines`, `--similarity` override the config and `--include-overrides` / `--strict` turn the option on. As with the flags, globs are matched against the path relative to the scan root or the file name. Files left out by `include` are not analyzed at all, just like `exclude`.
 
 ## Commands
 
@@ -48,6 +49,7 @@ Command line flags combine with the config: `--include`, `--exclude` and `--igno
 | `--include GLOB` | only scan matching files (repeatable) |
 | `--exclude GLOB` | skip paths entirely: not analyzed, not reported (repeatable) |
 | `--ignore GLOB` | analyze paths but report nothing for them (repeatable) |
+| `--ignore-finding HASH` | leave one finding out of the report, see [Ignoring single findings](#ignoring-single-findings) (repeatable) |
 | `--min-lines N` | smallest function body considered for duplicates (default 5) |
 | `--similarity 0.9` | also report near-duplicates (default `1.0` = exact only) |
 | `--include-overrides` | also report unused methods of subclasses |
@@ -76,6 +78,17 @@ snipsnap scan . --ignore 'alembic/versions/*'
 
 Globs are matched against the path relative to the scan root or the file name, and both flags can be repeated.
 
+### Ignoring single findings
+
+Every finding has a `hash`, shown in the text output and in the JSON report. Add it to `ignore-findings` (or pass `--ignore-finding HASH`) and that finding is dropped from the report, the counts and `--strict`. Unlike `--ignore`, other findings in the same file are unaffected. TOML comments are a good place to say why:
+
+```toml
+[tool.snipsnap]
+ignore-findings = [
+  "3f9a1c7e2b40",  # Plugin.run is called by the plugin loader
+]
+```
+
 ## JSON report
 
 ```jsonc
@@ -86,19 +99,20 @@ Globs are matched against the path relative to the scan root or the file name, a
               "dead_code": 3, "duplicate_groups": 1, "test_only": 1,
               "duration_seconds": 0.042},   // wall-clock scan time; not shown in the text output
   "dead_code": [{
-    "id": "dead-1", "kind": "function",   // function | method | class | import | variable
+    "id": "dead-1", "hash": "3f9a1c7e2b40",   // id is just a report-local counter; hash is stable
+    "kind": "function",                   // function | method | class | import | variable
     "name": "helper", "qualname": "Cls.helper",
     "path": "src/m.py", "line": 3, "end_line": 7,   // 1-based, inclusive
     "suggested_action": "...", "source": "..."      // source only with --with-source
   }],
   "test_only": [{                         // production code only tests use
-    "id": "test-only-1", "kind": "function", "name": "run", "qualname": "run",
+    "id": "test-only-1", "hash": "a81d09c4e5f2", "kind": "function", "name": "run", "qualname": "run",
     "path": "src/m.py", "line": 10, "end_line": 20,
     "tested_by": ["tests/test_m.py"],     // empty if only reached via other test-only code
     "suggested_action": "...", "source": "..."
   }],
   "duplicates": [{
-    "id": "dup-1", "kind": "exact",       // exact | similar
+    "id": "dup-1", "hash": "5be2c0d41a97", "kind": "exact",   // exact | similar
     "similarity": 1.0,
     "functions": [{"qualname": "a", "path": "src/m.py", "line": 3, "end_line": 7}],
     "suggested_action": "..."

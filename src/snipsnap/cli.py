@@ -84,6 +84,14 @@ def _add_scan_arguments(p: argparse.ArgumentParser) -> None:
         help="glob of paths to analyze but not report findings for (repeatable)",
     )
     p.add_argument(
+        "--ignore-finding",
+        action="append",
+        default=[],
+        metavar="HASH",
+        help="hash of a single finding to leave out of the report, "
+        "added to [tool.snipsnap] ignore-findings (repeatable)",
+    )
+    p.add_argument(
         "--min-lines",
         type=int,
         help="ignore functions with fewer body lines when looking for duplicates (default: 5)",
@@ -205,6 +213,7 @@ def _scan(args: argparse.Namespace) -> int:
         analyses=analyses,
         with_source=args.with_source,
         duration_seconds=round(time.perf_counter() - started, 3),
+        ignored_hashes={*config.ignore_findings, *args.ignore_finding},
     )
 
     if args.output:
@@ -216,7 +225,8 @@ def _scan(args: argparse.Namespace) -> int:
         if args.output:
             print(f"\nJSON report written to {args.output}")
 
-    return 1 if strict and (dead or dupes or only_tested) else 0
+    found = report.dead_code or report.duplicates or report.test_only
+    return 1 if strict and found else 0
 
 
 def _show(args: argparse.Namespace) -> int:

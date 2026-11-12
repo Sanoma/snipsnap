@@ -1,6 +1,7 @@
 """Build the JSON report and render it for the terminal."""
 
-from collections.abc import Sequence
+import hashlib
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from .models import (
@@ -37,6 +38,21 @@ _TEST_ONLY_ACTION = (
 _DUP_ACTION = "keep one implementation, delete the others, and update their callers to use it"
 
 
+def _digest(*parts: str) -> str:
+    return hashlib.sha256("\0".join(parts).encode()).hexdigest()[:12]
+
+
+def _dead_hash(category: str, item: DeadItem) -> str:
+    return _digest(category, item.kind, item.path, item.qualname)
+
+
+def _duplicate_hash(group: DuplicateGroup) -> str:
+    # identified by its members, not their bodies or positions, so it survives edits that
+    # keep the same functions duplicated; kind is left out so exact/similar flips keep it
+    members = sorted(f"{f.path}::{f.qualname}" for f in group.functions)
+    return _digest("duplicate", *members)
+
+
 def _source(root: Path, path: str, line: int, end_line: int) -> str | None:
     try:
         lines = (root / path).read_text(encoding="utf-8").splitlines()
@@ -55,14 +71,20 @@ def build_report(
     analyses: tuple[Analysis, ...] = ("dead_code", "duplicates", "test_only"),
     with_source: bool = False,
     duration_seconds: float | None = None,
+    ignored_hashes: Collection[str] = (),
 ) -> Report:
     def source(item: DeadItem | FunctionRef) -> str | None:
         return _source(root, item.path, item.line, item.end_line) if with_source else None
+
+    dead = [d for d in dead if _dead_hash("dead", d) not in ignored_hashes]
+    dupes = [g for g in dupes if _duplicate_hash(g) not in ignored_hashes]
+    only_tested = [t for t in only_tested if _dead_hash("test-only", t) not in ignored_hashes]
 
     dead_findings = [
         DeadCodeFinding(
             **d.model_dump(),
             id=f"dead-{i}",
+            hash=_dead_hash("dead", d),
             suggested_action=_DEAD_ACTIONS[d.kind],
             source=source(d),
         )
@@ -71,6 +93,7 @@ def build_report(
     dup_findings = [
         DuplicateFinding(
             id=f"dup-{i}",
+            hash=_duplicate_hash(g),
             kind=g.kind,
             similarity=g.similarity,
             functions=[DuplicateFunction(**f.model_dump(), source=source(f)) for f in g.functions],
@@ -82,6 +105,7 @@ def build_report(
         OnlyTestedFinding(
             **t.model_dump(),
             id=f"test-only-{i}",
+            hash=_dead_hash("test-only", t),
             suggested_action=_TEST_ONLY_ACTION,
             source=source(t),
         )
@@ -140,7 +164,7 @@ def render_text(report: Report, *, color: bool = False, only: str | None = None)
         out += ["", st.bold(f"Dead code ({len(report.dead_code)})")]
         for d in report.dead_code:
             where = st.cyan(_span(d.path, d.line, d.end_line))
-            out.append(f"  {where}  {st.red('unused ' + d.kind)} {d.qualname}  {st.dim(d.id)}")
+            out.append(f"  {where}  {st.red('unused ' + d.kind)} {d.qualname}  {st.dim(d.hash)}")
         if not report.dead_code:
             out.append("  none")
 
@@ -148,7 +172,7 @@ def render_text(report: Report, *, color: bool = False, only: str | None = None)
         out += ["", st.bold(f"Only used by tests ({len(report.test_only)})")]
         for t in report.test_only:
             where = st.cyan(_span(t.path, t.line, t.end_line))
-            out.append(f"  {where}  {st.yellow(t.kind)} {t.qualname}  {st.dim(t.id)}")
+            out.append(f"  {where}  {st.yellow(t.kind)} {t.qualname}  {st.dim(t.hash)}")
             if t.tested_by:
                 out.append(st.dim(f"    tested by: {', '.join(t.tested_by)}"))
         if not report.test_only:
@@ -158,7 +182,7 @@ def render_text(report: Report, *, color: bool = False, only: str | None = None)
         out += ["", st.bold(f"Duplicate functions ({len(report.duplicates)} group(s))")]
         for g in report.duplicates:
             label = "exact" if g.kind == "exact" else f"similar {g.similarity:.0%}"
-            out.append(f"  {st.yellow(label)}  {st.dim(g.id)}")
+            out.append(f"  {st.yellow(label)}  {st.dim(g.hash)}")
             for f in g.functions:
                 where = st.cyan(_span(f.path, f.line, f.end_line))
                 out.append(f"    {where}  {f.qualname}")

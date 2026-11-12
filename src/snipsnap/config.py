@@ -24,6 +24,9 @@ class Config(BaseModel):
     )
     exclude: tuple[str, ...] = ()
     ignore: tuple[str, ...] = ()
+    ignore_findings: tuple[str, ...] = Field(
+        default=(), description="hashes of individual findings to leave out of the report"
+    )
     min_lines: int | None = Field(default=None, ge=1)
     similarity: float | None = Field(default=None, gt=0, le=1)
     include_overrides: bool = False

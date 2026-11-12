@@ -48,7 +48,7 @@ Apply automatically once each finding passes verification. For every finding:
    
 4. **Clean up the fallout.** Deleting code can orphan imports. Run the linter's unused-import fix (`ruff check --select F401 --fix <files>`) or remove them by hand.
 
-If a finding is a false positive because the code is invoked from outside the scanned code (migrations, framework entry points, scripts), do not delete it and do not edit `[tool.snipsnap]` yourself (it may not exist). List it and suggest the user add an `ignore` glob (analyzed, not reported; its calls still count as usage) or, for code that should not be analyzed at all, `exclude`, either in `[tool.snipsnap]` or as `--ignore`/`--exclude` flags.
+If a finding is a false positive because the code is invoked from outside the scanned code (migrations, framework entry points, scripts), do not delete it and do not edit `[tool.snipsnap]` yourself (it may not exist). List it and suggest the user either add an `ignore` glob (analyzed, not reported; its calls still count as usage) or, for code that should not be analyzed at all, `exclude`, or, for a single finding, put its `hash` in `ignore-findings`. Each is available in `[tool.snipsnap]` or as an `--ignore`/`--exclude`/`--ignore-finding` flag.
 
 Deleting code can make *more* code dead (callees of the removed code). That is expected: after finishing the pass, re-scan and repeat until no new dead-code findings appear (cap at 5 rounds, and say so if you hit it).
 

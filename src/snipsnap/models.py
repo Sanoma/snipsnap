@@ -7,6 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field
 DeadKind = Literal["function", "method", "class", "import", "variable"]
 Analysis = Literal["dead_code", "duplicates", "test_only"]
 
+_HASH_DESCRIPTION = (
+    "stable identity of the finding, independent of line numbers; "
+    "list it under ignore-findings to suppress the finding"
+)
+
 
 class FrozenBaseModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -44,12 +49,14 @@ class DuplicateGroup(FrozenBaseModel):
 
 class DeadCodeFinding(DeadItem):
     id: str
+    hash: str = Field(description=_HASH_DESCRIPTION)
     suggested_action: str
     source: str | None = None
 
 
 class OnlyTestedFinding(OnlyTestedItem):
     id: str
+    hash: str = Field(description=_HASH_DESCRIPTION)
     suggested_action: str
     source: str | None = None
 
@@ -60,6 +67,7 @@ class DuplicateFunction(FunctionRef):
 
 class DuplicateFinding(FrozenBaseModel):
     id: str
+    hash: str = Field(description=_HASH_DESCRIPTION)
     kind: Literal["exact", "similar"]
     similarity: float = Field(gt=0, le=1)
     functions: list[DuplicateFunction]
