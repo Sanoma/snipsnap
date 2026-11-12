@@ -1,0 +1,16 @@
+import typing
+from typing import Protocol
+
+
+class A(Protocol):
+    def f(self, x: int) -> int: ...
+    def g(self, y: str) -> str: ...
+
+
+class B(typing.Protocol[int]):
+    def h(self, z: bytes) -> bytes: ...
+
+
+class C:
+    def f(self, x): ...
+    def g(self, y): ...

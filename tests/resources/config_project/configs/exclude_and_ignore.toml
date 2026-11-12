@@ -1,0 +1,3 @@
+[tool.snipsnap]
+exclude = ["src/legacy/*"]
+ignore = ["scripts/*"]

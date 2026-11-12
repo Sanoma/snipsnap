@@ -1,0 +1,5 @@
+[project]
+name = "p"
+
+[project.scripts]
+p = "lib:entry"

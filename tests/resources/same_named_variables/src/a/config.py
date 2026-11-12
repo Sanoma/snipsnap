@@ -1,0 +1,4 @@
+PROMPTS = {"x": 1}
+SHARED = 1
+VIA_ATTR = 1
+STAR = 1

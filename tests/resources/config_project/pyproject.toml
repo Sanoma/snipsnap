@@ -1,0 +1,5 @@
+[project]
+name = "p"
+
+[tool.snipsnap]
+exclude = ["legacy/*"]
