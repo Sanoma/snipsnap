@@ -26,13 +26,29 @@ class _Candidate:
     shape: list[str]
 
 
+def _is_protocol(cls: ast.ClassDef) -> bool:
+    for base in cls.bases:
+        if isinstance(base, ast.Subscript):
+            base = base.value
+        if (isinstance(base, ast.Name) and base.id == "Protocol") or (
+            isinstance(base, ast.Attribute) and base.attr == "Protocol"
+        ):
+            return True
+    return False
+
+
 def _iter_functions(tree: ast.AST, prefix: str = "") -> Iterator[tuple[str, FuncNode]]:
-    """Yield (qualname, node) for module-level functions and methods (any class depth)."""
+    """Yield (qualname, node) for module-level functions and methods (any class depth).
+
+    Methods of Protocol classes are skipped: their stub bodies are declarations, and
+    would otherwise all look identical.
+    """
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, FuncNode):
             yield f"{prefix}{node.name}", node
         elif isinstance(node, ast.ClassDef):
-            yield from _iter_functions(node, f"{prefix}{node.name}.")
+            if not _is_protocol(node):
+                yield from _iter_functions(node, f"{prefix}{node.name}.")
         elif isinstance(node, ast.If | ast.Try | ast.With):
             yield from _iter_functions(node, prefix)
 

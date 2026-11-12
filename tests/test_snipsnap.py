@@ -298,6 +298,30 @@ def test_duplicate_range_includes_decorators(tmp_path):
     assert (group.functions[0].line, group.functions[0].end_line) == (2, 7)
 
 
+def test_protocol_stubs_are_not_duplicates(tmp_path):
+    write(
+        tmp_path,
+        "m.py",
+        """
+        import typing
+        from typing import Protocol
+
+        class A(Protocol):
+            def f(self, x: int) -> int: ...
+            def g(self, y: str) -> str: ...
+
+        class B(typing.Protocol[int]):
+            def h(self, z: bytes) -> bytes: ...
+
+        class C:
+            def f(self, x): ...
+            def g(self, y): ...
+    """,
+    )
+    (group,) = find_duplicates(load_modules([tmp_path], []), min_lines=1)
+    assert [f.qualname for f in group.functions] == ["C.f", "C.g"]
+
+
 def test_show_roundtrip(project, tmp_path, capsys):
     out_file = tmp_path / "r.json"
     main(["scan", str(project), "-o", str(out_file)])
