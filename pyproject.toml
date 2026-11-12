@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Find dead code and duplicate functions in Python projects"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["pydantic>=2.12"]
+dependencies = ["pydantic>=2.14.3"]
 
 [project.scripts]
 snipsnap = "snipsnap.cli:main"
@@ -14,11 +14,7 @@ requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = [
-    "pytest>=8",
-    "ruff>=0.17.1",
-    "ty>=0.0.89",
-]
+dev = ["pytest>=9.2.0", "ruff>=0.17.4", "ty>=0.0.101"]
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }]
