@@ -13,6 +13,30 @@ uv tool install /path/to/snipsnap
 snipsnap scan [PATH ...]
 ```
 
+To run it from a uv-managed project, add it as a dev dependency and use `uv run`:
+
+```sh
+uv add --dev /path/to/snipsnap       # or a git URL; adds a [tool.uv.sources] entry
+uv run snipsnap scan
+```
+
+## Configuration
+
+Put defaults in the `[tool.snipsnap]` table of your project's `pyproject.toml`. snipsnap uses the nearest `pyproject.toml` that has the table, starting at the scanned directory and walking up (or the file given with `--config FILE`). Keys are named like the flags; unknown keys and invalid values are errors.
+
+```toml
+[tool.snipsnap]
+include = ["src/*", "tests/*"]        # only scan matching files (default: everything)
+exclude = ["src/legacy/*"]            # not analyzed, not reported
+ignore = ["alembic/versions/*"]       # analyzed, not reported
+min-lines = 5
+similarity = 1.0
+include-overrides = false
+strict = false
+```
+
+Command line flags combine with the config: `--include`, `--exclude` and `--ignore` add to the configured globs, while `--min-lines`, `--similarity` override the config and `--include-overrides` / `--strict` turn the option on. As with the flags, globs are matched against the path relative to the scan root or the file name. Files left out by `include` are not analyzed at all, just like `exclude`.
+
 ## Commands
 
 `snipsnap scan [PATH ...]` analyzes code; `snipsnap show REPORT.json` renders a saved report. Options for `scan`:
@@ -20,6 +44,8 @@ snipsnap scan [PATH ...]
 | Flag | Meaning |
 | --- | --- |
 | `--only dead\|duplicates\|test-only` | run one analysis |
+| `--config FILE` | read `[tool.snipsnap]` from this `pyproject.toml` instead of the nearest one |
+| `--include GLOB` | only scan matching files (repeatable) |
 | `--exclude GLOB` | skip paths entirely: not analyzed, not reported (repeatable) |
 | `--ignore GLOB` | analyze paths but report nothing for them (repeatable) |
 | `--min-lines N` | smallest function body considered for duplicates (default 5) |

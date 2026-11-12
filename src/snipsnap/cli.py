@@ -10,6 +10,7 @@ import sys
 import time
 from pathlib import Path
 
+from .config import ConfigError, load_config
 from .deadcode import find_dead_code
 from .duplicates import find_duplicates
 from .models import Analysis, Report
@@ -55,6 +56,20 @@ def _add_scan_arguments(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--only", choices=list(_ANALYSIS_BY_OPTION), help="run just one of the analyses")
     p.add_argument(
+        "--config",
+        type=_existing_path,
+        metavar="FILE",
+        help="pyproject.toml whose [tool.snipsnap] table to use "
+        "(default: the nearest one at or above the scanned directory)",
+    )
+    p.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="only scan files matching this glob, added to [tool.snipsnap] include (repeatable)",
+    )
+    p.add_argument(
         "--exclude",
         action="append",
         default=[],
@@ -71,13 +86,11 @@ def _add_scan_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--min-lines",
         type=int,
-        default=5,
         help="ignore functions with fewer body lines when looking for duplicates (default: 5)",
     )
     p.add_argument(
         "--similarity",
         type=_similarity,
-        default=1.0,
         metavar="0-1",
         help="also report near-duplicates at or above this similarity; "
         "1.0 means exact (normalized) matches only (default: 1.0)",
@@ -142,7 +155,24 @@ def build_parser() -> argparse.ArgumentParser:
 def _scan(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     root = common_root(args.paths)
-    modules = load_modules(args.paths, args.exclude, root=root, ignores=args.ignore)
+    try:
+        config = load_config(root, args.config)
+    except ConfigError as exc:
+        print(f"snipsnap: {exc}", file=sys.stderr)
+        return 2
+    # list options add to the configured ones; scalars override them
+    min_lines = args.min_lines if args.min_lines is not None else config.min_lines or 5
+    similarity = args.similarity if args.similarity is not None else config.similarity or 1.0
+    include_overrides = args.include_overrides or config.include_overrides
+    strict = args.strict or config.strict
+
+    modules = load_modules(
+        args.paths,
+        [*config.exclude, *args.exclude],
+        root=root,
+        ignores=[*config.ignore, *args.ignore],
+        includes=[*config.include, *args.include],
+    )
     entry_points = set[str]().union(*map(entry_point_names, args.paths))
     analyses = (
         (_ANALYSIS_BY_OPTION[args.only],) if args.only else tuple(_ANALYSIS_BY_OPTION.values())
@@ -150,20 +180,18 @@ def _scan(args: argparse.Namespace) -> int:
 
     # the test-only analysis needs the dead code to tell "unused" from "only tested"
     found_dead = (
-        find_dead_code(modules, entry_points, include_overrides=args.include_overrides)
+        find_dead_code(modules, entry_points, include_overrides=include_overrides)
         if "dead_code" in analyses or "test_only" in analyses
         else []
     )
     dead = found_dead if "dead_code" in analyses else []
     dupes = (
-        find_duplicates(modules, min_lines=args.min_lines, similarity=args.similarity)
+        find_duplicates(modules, min_lines=min_lines, similarity=similarity)
         if "duplicates" in analyses
         else []
     )
     only_tested = (
-        find_only_tested(
-            modules, entry_points, found_dead, include_overrides=args.include_overrides
-        )
+        find_only_tested(modules, entry_points, found_dead, include_overrides=include_overrides)
         if "test_only" in analyses
         else []
     )
@@ -188,7 +216,7 @@ def _scan(args: argparse.Namespace) -> int:
         if args.output:
             print(f"\nJSON report written to {args.output}")
 
-    return 1 if args.strict and (dead or dupes or only_tested) else 0
+    return 1 if strict and (dead or dupes or only_tested) else 0
 
 
 def _show(args: argparse.Namespace) -> int:

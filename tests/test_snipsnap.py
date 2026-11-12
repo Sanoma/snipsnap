@@ -593,3 +593,55 @@ def test_ignored_module_under_tests_dir_counts_as_production_usage(tmp_path):
 
     assert flagged([]) == ["via_ignored", "via_tests"]
     assert flagged(["tests/e2e/*"]) == ["via_tests"]
+
+
+def config_project(tmp_path: Path, table: str) -> Path:
+    write(tmp_path, "pyproject.toml", f'[project]\nname = "p"\n\n[tool.snipsnap]\n{table}\n')
+    write(tmp_path, "src/app.py", "def orphan(): pass\n")
+    write(tmp_path, "src/legacy/old.py", "def old_orphan(): pass\n")
+    write(tmp_path, "scripts/tool.py", "def script_orphan(): pass\n")
+    return tmp_path
+
+
+def reported_paths(capsys, root: Path, *args: str) -> set[str]:
+    assert main(["scan", str(root), "--json", "--only", "dead", *args]) == 0
+    return {f["path"] for f in json.loads(capsys.readouterr().out)["dead_code"]}
+
+
+def test_config_exclude_ignore_and_include(tmp_path, capsys):
+    root = config_project(tmp_path, 'exclude = ["src/legacy/*"]\nignore = ["scripts/*"]')
+    assert reported_paths(capsys, root) == {"src/app.py"}
+
+    root = config_project(tmp_path, 'include = ["src/*"]')
+    assert reported_paths(capsys, root) == {"src/app.py", "src/legacy/old.py"}
+
+
+def test_cli_lists_add_to_config(tmp_path, capsys):
+    root = config_project(tmp_path, 'exclude = ["src/legacy/*"]')
+    assert reported_paths(capsys, root, "--exclude", "scripts/*") == {"src/app.py"}
+
+
+def test_strict_and_scalars_come_from_config(tmp_path):
+    root = config_project(tmp_path, "strict = true")
+    assert main(["scan", str(root), "--only", "dead"]) == 1
+
+
+def test_config_found_from_parent_directory(tmp_path, capsys):
+    root = config_project(tmp_path, 'exclude = ["legacy/*"]')
+    assert reported_paths(capsys, root / "src") == {"app.py"}
+
+
+def test_explicit_config_file(tmp_path, capsys):
+    root = config_project(tmp_path, "")
+    other = tmp_path / "other.toml"
+    other.write_text('[tool.snipsnap]\nexclude = ["scripts/*", "src/*"]\n')
+    assert reported_paths(capsys, root, "--config", str(other)) == set()
+
+
+@pytest.mark.parametrize(
+    "table", ["unknown = 1", "similarity = 2", 'exclude = "src/*"', "min-lines = 0"]
+)
+def test_invalid_config_is_reported(tmp_path, capsys, table):
+    root = config_project(tmp_path, table)
+    assert main(["scan", str(root)]) == 2
+    assert "invalid [tool.snipsnap]" in capsys.readouterr().err

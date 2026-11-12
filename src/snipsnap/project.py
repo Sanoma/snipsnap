@@ -96,15 +96,21 @@ def _walked_python_files(root: Path) -> list[Path]:
     return found
 
 
-def _iter_files(root: Path, excludes: Sequence[str], base: Path) -> Iterator[Path]:
+def _is_selected(rel: Path, includes: Sequence[str], excludes: Sequence[str]) -> bool:
+    return (not includes or _is_excluded(rel, includes)) and not _is_excluded(rel, excludes)
+
+
+def _iter_files(
+    root: Path, includes: Sequence[str], excludes: Sequence[str], base: Path
+) -> Iterator[Path]:
     if root.is_file():
-        if not _is_excluded(root.resolve().relative_to(base), excludes):
+        if _is_selected(root.resolve().relative_to(base), includes, excludes):
             yield root
         return
     if (found := _git_python_files(root)) is None:
         found = _walked_python_files(root)
     for path in sorted(found):
-        if not _is_excluded(path.resolve().relative_to(base), excludes):
+        if _is_selected(path.resolve().relative_to(base), includes, excludes):
             yield path
 
 
@@ -120,11 +126,12 @@ def load_modules(
     *,
     root: Path | None = None,
     ignores: Sequence[str] = (),
+    includes: Sequence[str] = (),
 ) -> list[Module]:
     base = root or common_root(paths)
     modules: list[Module] = []
     for scan in paths:
-        for file in _iter_files(scan, excludes, base):
+        for file in _iter_files(scan, includes, excludes, base):
             try:
                 tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
             except (SyntaxError, UnicodeDecodeError, ValueError, RecursionError) as exc:
