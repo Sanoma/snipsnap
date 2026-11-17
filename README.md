@@ -1,6 +1,6 @@
 # snipsnap
 
-Finds dead code and duplicate functions in Python projects. Analysis uses only the standard library (`ast`); the only dependency is `pydantic`, used for the typed report models. It lives in the tool's own environment and adds nothing to the projects you scan.
+Finds dead code and duplicate functions in Python projects producing machine-readable output.
 
 ## Install / run
 
@@ -16,13 +16,32 @@ snipsnap scan [PATH ...]
 To run it from a uv-managed project, add it as a dev dependency and use `uv run`:
 
 ```sh
-uv add --dev /path/to/snipsnap       # or a git URL; adds a [tool.uv.sources] entry
+uv add --dev /path/to/snipsnap
 uv run snipsnap scan
 ```
 
-## Configuration
+## Develop
 
-Put defaults in the `[tool.snipsnap]` table of your project's `pyproject.toml`. snipsnap uses the nearest `pyproject.toml` that has the table, starting at the scanned directory and walking up (or the file given with `--config FILE`). Keys are named like the flags; unknown keys and invalid values are errors.
+```sh
+uv run pytest
+uv run ruff format .
+uv run ruff check .
+uv run ty check
+```
+
+## Agent skill
+
+`skills/fix-snipsnap-report/SKILL.md` is a Claude Code skill that applies a report to the codebase (verifies each finding, deletes or merges code, re-scans). It lives here so it changes together with the report format. Link it into your user skills to use it everywhere:
+
+```sh
+ln -s "$PWD/skills/fix-snipsnap-report" ~/.claude/skills/fix-snipsnap-report
+```
+
+A test checks the skill against the report schema and CLI flags, so it fails when they drift apart.
+
+## `uv` Configuration
+
+Put defaults in the `[tool.snipsnap]` table of your project's `pyproject.toml`. 
 
 ```toml
 [tool.snipsnap]
@@ -36,9 +55,9 @@ include-overrides = false             # also report unused methods of subclasses
 strict = false                        # non-zero exit code for any findings
 ```
 
-Command line flags combine with the config: `--include`, `--exclude`, `--ignore` and `--ignore-finding` add to the configured lists, while `--min-lines`, `--similarity` override the config and `--include-overrides` / `--strict` turn the option on. As with the flags, globs are matched against the path relative to the scan root or the file name. Files left out by `include` are not analyzed at all, just like `exclude`.
+Command line flags combine with the config: `--include`, `--exclude`, `--ignore` and `--ignore-finding` add to the configured lists, while `--min-lines`, `--similarity` override the config and `--include-overrides` / `--strict` turn the option on. As with the flags, globs are matched against the path relative to the scan root or the file name.
 
-## Commands
+## Commands / arguments
 
 `snipsnap scan [PATH ...]` analyzes code; `snipsnap show REPORT.json` renders a saved report. Options for `scan`:
 
@@ -91,6 +110,8 @@ ignore-findings = [
 
 ## JSON report
 
+Example json report output:
+
 ```jsonc
 {
   "version": 1,
@@ -120,9 +141,7 @@ ignore-findings = [
 }
 ```
 
-The schema is defined by the pydantic models in `src/snipsnap/models.py` (`Report.model_json_schema()` exports a JSON Schema). `show` validates reports against it and rejects unknown fields or versions.
-
-Line ranges cover the whole definition (including decorators for duplicates). For an `import`, the range is the whole import statement, but only the named unused name should be removed. Line numbers shift as code is edited, so re-run after each batch of changes or apply edits bottom-up.
+The schema is defined by the pydantic models in `src/snipsnap/models.py`.
 
 ## How it works
 
@@ -134,21 +153,3 @@ Unused variables are plain assignments (`X = ...`, `X: T = ...`) at module level
 
 **Duplicates** compare normalized ASTs: function names, docstrings, type annotations, decorators and the names of parameters/locals are ignored. With `--similarity`, functions whose structure is similar enough are grouped too.
 
-## Agent skill
-
-`skills/fix-snipsnap-report/SKILL.md` is a Claude Code skill that applies a report to the codebase (verifies each finding, deletes or merges code, re-scans). It lives here so it changes together with the report format. Link it into your user skills to use it everywhere:
-
-```sh
-ln -s "$PWD/skills/fix-snipsnap-report" ~/.claude/skills/fix-snipsnap-report
-```
-
-A test checks the skill against the report schema and CLI flags, so it fails when they drift apart.
-
-## Develop
-
-```sh
-uv run pytest
-uv run ruff format .
-uv run ruff check .
-uv run ty check
-```

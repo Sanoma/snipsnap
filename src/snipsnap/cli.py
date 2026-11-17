@@ -218,6 +218,7 @@ def _scan(args: argparse.Namespace) -> int:
 
     if args.output:
         args.output.write_text(report.to_json() + "\n", encoding="utf-8")
+
     if args.json:
         print(report.to_json())
     else:
